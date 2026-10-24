@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c1110" />
+  <title>Blue Lot</title>
+  <style>
+    :root {
+      --bg: #0c1110;
+      --surface: #151c1a;
+      --raised: #1c2522;
+      --fg: #e8f2ec;
+      --muted: #8b9a92;
+      --line: #2c3834;
+      --open: #3ddc84;
+      --ink: #062014;
+      --busy: #ff4d5a;
+      --busy-ink: #2a070b;
+      --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); }
+    body { min-height: 100dvh; text-rendering: optimizeLegibility; }
+    button, a, input { font: inherit; color: inherit; }
+    button { cursor: pointer; border: 0; background: none; }
+    button:focus-visible, a:focus-visible, input:focus-visible {
+      outline: 2px solid var(--open); outline-offset: 2px;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 20px 16px 108px; }
+    .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .kicker { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 14px; }
+    .dot { width: 8px; height: 8px; border-radius: 99px; background: var(--open); display: inline-block; }
+    .dot.live { animation: pulse 1.8s ease-in-out infinite; }
+    .dot.saved { background: var(--muted); animation: none; }
+    @keyframes pulse { 50% { opacity: 0.35; } }
+    h1 { margin: 4px 0 0; font-size: 32px; letter-spacing: -0.03em; font-weight: 600; }
+    .sub { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .icon-btn {
+      width: 44px; height: 44px; border-radius: 99px; border: 1px solid var(--line);
+      background: var(--surface); display: grid; place-items: center; flex: none;
+    }
+    .icon-btn[disabled] { opacity: 0.6; }
+    .icon-btn svg.spin { animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hero {
+      margin-top: 18px; padding: 20px; border-radius: 24px; border: 1px solid var(--line); background: var(--surface);
+    }
+    .count { margin: 0; font-family: var(--mono); font-size: 64px; line-height: 0.9; letter-spacing: -0.04em; color: var(--open); font-weight: 500; }
+    .meta { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+    .busy-count { color: var(--busy); }
+    .when { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+    .note { margin: 8px 0 0; font-size: 14px; }
+    .addr { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 14px; }
+    .addr svg { color: var(--open); }
+    .search {
+      margin-top: 14px; display: flex; align-items: center; gap: 8px;
+      border: 1px solid var(--line); background: var(--surface); border-radius: 16px; padding: 0 12px;
+    }
+    .search input {
+      height: 48px; width: 100%; border: 0; background: transparent; outline: none;
+      font-family: var(--mono); font-size: 16px;
+    }
+    .search input::placeholder { color: var(--muted); }
+    .floors { display: flex; flex-direction: column; gap: 28px; margin-top: 22px; }
+    .floor-h { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 10px; }
+    .floor-h h2 { margin: 0; font-size: 18px; font-weight: 500; }
+    .floor-h p { margin: 0; color: var(--muted); font-size: 14px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; list-style: none; margin: 0; padding: 0; }
+    .stall {
+      min-height: 112px; width: 100%; text-align: left; border-radius: 16px; padding: 12px;
+      display: flex; flex-direction: column; align-items: stretch;
+      border: 1px solid var(--line); background: var(--surface);
+    }
+    .stall.open { border-color: rgba(61, 220, 132, 0.4); background: rgba(61, 220, 132, 0.1); }
+    .stall.busy { border-color: rgba(255, 77, 90, 0.45); background: rgba(255, 77, 90, 0.1); }
+    .stall.offline { border-style: dashed; }
+    .stall-top, .stall-bot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .stall-name { font-family: var(--mono); font-size: 24px; letter-spacing: -0.03em; }
+    .bank { color: var(--muted); font-size: 12px; }
+    .pill { border-radius: 99px; padding: 2px 8px; font-size: 12px; background: var(--raised); color: var(--muted); }
+    .pill.open { background: var(--open); color: var(--ink); font-weight: 600; }
+    .pill.busy { background: var(--busy); color: var(--busy-ink); font-weight: 600; }
+    .clock {
+      margin-top: 8px; align-self: flex-start; width: fit-content; max-width: 100%;
+      display: inline-flex; align-items: center; gap: 4px;
+      border-radius: 99px; background: var(--busy); color: var(--busy-ink);
+      font-size: 12px; font-weight: 600; padding: 2px 8px;
+      white-space: nowrap; overflow: hidden;
+    }
+    .stall-bot { margin-top: auto; padding-top: 12px; }
+    .empty, .feed {
+      border-radius: 24px; border: 1px dashed var(--line); background: var(--surface); padding: 22px;
+    }
+    .feed { border-style: solid; }
+    .empty h2, .feed h2 { margin: 0; font-size: 18px; font-weight: 500; }
+    .empty p, .feed p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+    .retry {
+      margin-top: 14px; height: 44px; padding: 0 16px; border-radius: 99px;
+      background: var(--open); color: var(--ink); font-weight: 600; font-size: 14px;
+    }
+    .fine { margin: 28px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .fine a { color: var(--muted); }
+    .dock {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+      border-top: 1px solid var(--line); background: rgba(12, 17, 16, 0.95);
+      backdrop-filter: blur(10px); padding-bottom: max(6px, env(safe-area-inset-bottom));
+    }
+    .dock-row { max-width: 560px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); }
+    .dock button { height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--muted); }
+    .dock button[aria-pressed="true"] { color: var(--open); }
+    .dock button[aria-pressed="true"][data-filter="busy"] { color: var(--busy); }
+    .dock span { font-size: 12px; }
+    .dock b { font-family: var(--mono); font-weight: 500; }
+    .dock.hidden { display: none; }
+    .shade { position: fixed; inset: 0; z-index: 30; background: rgba(12, 17, 16, 0.72); }
+    .sheet {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; margin: 0 auto; max-width: 520px;
+      background: var(--surface); border: 1px solid var(--line); border-bottom: 0;
+      border-radius: 24px 24px 0 0; padding: 18px 18px max(18px, env(safe-area-inset-bottom));
+      max-height: 88dvh; overflow: auto;
+    }
+    .sheet-h { display: flex; justify-content: space-between; gap: 12px; }
+    .where { margin: 0; color: var(--muted); font-size: 14px; }
+    .sheet h2 { margin: 2px 0 0; font-family: var(--mono); font-size: 40px; letter-spacing: -0.04em; font-weight: 500; }
+    .facts { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .fact { background: var(--raised); border-radius: 16px; padding: 12px; }
+    .fact.wide { grid-column: 1 / -1; width: 100%; text-align: left; }
+    .fact dt { color: var(--muted); font-size: 12px; }
+    .fact dd { margin: 4px 0 0; font-size: 14px; }
+    .actions { display: flex; gap: 8px; margin-top: 16px; }
+    .actions a, .actions button {
+      flex: 1; height: 48px; border-radius: 99px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      text-decoration: none; font-size: 14px; font-weight: 600;
+    }
+    .ghost { border: 1px solid var(--line); }
+    .go { background: var(--open); color: var(--ink); }
+    .star { color: var(--open); }
+    .star.filled { fill: var(--open); }
+    @media (prefers-reduced-motion: reduce) {
+      .dot.live, .icon-btn svg.spin { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div>
+        <h1>Open stalls</h1>
+        <p class="sub" id="sub">Hawthorne garage</p>
+      </div>
+      <button class="icon-btn" id="refresh" type="button" aria-label="Refresh chargers">
+        <svg id="refresh-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
+      </button>
+    </header>
+    <section class="hero">
+      <p class="count" id="count">–</p>
+      <p class="meta" id="meta">Checking the garage…</p>
+      <p class="when" id="when"></p>
+      <p class="note" id="note" hidden></p>
+      <a class="addr" id="addr" hidden target="_blank" rel="noreferrer"></a>
+    </section>
+    <label class="search">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b9a92" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
+      <input id="q" inputmode="numeric" placeholder="Stall number" aria-label="Search stall number" />
+    </label>
+    <div id="list"></div>
+    <p class="fine">Same live feed as the Blue Lot garage board. Refreshes every 30 seconds. Free Level 2, up to 6.6 kW.</p>
+  </div>
+  <nav class="dock" id="dock" aria-label="Stall filters">
+    <div class="dock-row" id="dock-row"></div>
+  </nav>
+  <div id="sheet-root"></div>
+  <script>
+    const FALLBACK = __FALLBACK_JSON__;
+    const PIN_KEY = "bluelot-pins";
+    const FLOORS = { 8: 1, 9: 2, 10: 2, 11: 3, 12: 3, 13: 5, 14: 5, 15: 6, 16: 6 };
+    const FILTERS = [
+      { id: "open", label: "Open" },
+      { id: "busy", label: "In use" },
+      { id: "offline", label: "Offline" },
+      { id: "pinned", label: "Saved" },
+    ];
+
+    const LONG_SESSION_SECONDS = 16 * 60 * 60;
+    let state = null;
+    let failed = false;
+    let filter = "open";
+    let query = "";
+    let pins = [];
+    let selected = null;
+    let pending = false;
+    let now = Date.now();
+    let seenAbsolute = false;
+
+    const $ = (id) => document.getElementById(id);
+
+    function esc(value) {
+      return String(value)
+        .replace(/&/g, "&" + "amp;")
+        .replace(/</g, "&" + "lt;")
+        .replace(/>/g, "&" + "gt;")
+        .replace(/"/g, "&" + "quot;")
+        .replace(/'/g, "&#" + "39;");
+    }
+
+    function bankAndFloor(gatewayName, gatewayId) {
+      const match = /KT-SX-(\d+)([A-Z])?/i.exec(gatewayName || "");
+      if (match) return { floor: Number(match[1]), bank: (match[2] || "").toUpperCase() };
+      return { floor: FLOORS[gatewayId] || 0, bank: "" };
+    }
+
+    function availabilityOf(info) {
+      if (!info || info.status !== "online") return "offline";
+      if (info.chargeStatus === "charging") return "busy";
+      return "open";
+    }
+
+    function fromRaw(data) {
+      const gateways = new Map();
+      for (const gateway of data.gateways || []) {
+        if (typeof gateway.id === "number" && gateway.name) gateways.set(gateway.id, gateway.name);
+      }
+      const stalls = (data.stations || [])
+        .filter((station) => station.name)
+        .map((station) => {
+          const gatewayId = station.gatewayId || 0;
+          const gateway = gateways.get(gatewayId) || ("Gateway " + gatewayId);
+          const place = bankAndFloor(gateway, gatewayId);
+          const info = station.info || {};
+          const availability = availabilityOf(info);
+          const session = info.current_session_duration;
+          return {
+            name: String(station.name),
+            floor: place.floor,
+            bank: place.bank,
+            gateway,
+            availability,
+            pluggedIn: info.connection === "connected",
+            amps: info.max_charge_current || 0,
+            volts: info.operating_voltage || 0,
+            sessionSeconds: availability === "busy" && typeof session === "number" && session > 0 ? session : null,
+            seenAt: typeof info.timestamp === "number" ? info.timestamp : null,
+            portId: station.portId || null,
+          };
+        })
+        .sort((a, b) => a.floor - b.floor || Number(a.name) - Number(b.name) || a.name.localeCompare(b.name));
+      return {
+        site: (data.name || "").trim() || "Blue Lot",
+        address: (data.address || "").trim(),
+        city: (data.city || "").trim(),
+        state: (data.state || "").trim(),
+        zip: (data.zipcode || "").trim(),
+        fetchedAt: new Date().toISOString(),
+        live: true,
+        stalls,
+      };
+    }
+    window.__fromRaw = fromRaw;
+
+    function kwLabel(stall) {
+      const kw = (stall.volts * stall.amps) / 1000;
+      if (!Number.isFinite(kw) || kw <= 0) return "J1772";
+      return kw.toFixed(1) + " kW";
+    }
+
+    function sessionBadge(seconds) {
+      const total = Math.max(0, Math.floor(seconds));
+      const days = Math.floor(total / 86400);
+      if (days > 0) {
+        const hours = Math.floor((total % 86400) / 3600);
+        return days + "d " + hours + "h";
+      }
+      return formatDuration(seconds);
+    }
+
+    function formatDuration(seconds) {
+      const total = Math.max(0, Math.floor(seconds));
+      const days = Math.floor(total / 86400);
+      const hours = Math.floor((total % 86400) / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      if (days > 0) {
+        const parts = [days + "d", hours + "h"];
+        if (minutes > 0) parts.push(minutes + "m");
+        return parts.join(" ");
+      }
+      if (hours > 0) return hours + "h " + minutes + "m";
+      if (minutes > 0) return minutes + "m";
+      return total + "s";
+    }
+
+    function formatUtc(iso) {
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return "unknown";
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const hh = String(date.getUTCHours()).padStart(2, "0");
+      const mm = String(date.getUTCMinutes()).padStart(2, "0");
+      return months[date.getUTCMonth()] + " " + date.getUTCDate() + ", " + hh + ":" + mm + " UTC";
+    }
+
+    function formatLocal(iso) {
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return "unknown";
+      return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      }).format(date);
+    }
+
+    function formatAgo(iso) {
+      const then = new Date(iso).getTime();
+      if (Number.isNaN(then)) return "unknown";
+      const seconds = Math.max(0, Math.round((now - then) / 1000));
+      if (seconds < 10) return "just now";
+      if (seconds < 60) return seconds + "s ago";
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return minutes + "m ago";
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + "h ago";
+      return Math.floor(hours / 24) + "d ago";
+    }
+
+    function statusLabel(availability) {
+      if (availability === "open") return "Open";
+      if (availability === "busy") return "In use";
+      return "Offline";
+    }
+
+    function mapsHref(snapshot) {
+      const queryText = [snapshot.address, snapshot.city, snapshot.state, snapshot.zip].filter(Boolean).join(", ");
+      return "https://maps.google.com/?q=" + encodeURIComponent(queryText || "12250 Crenshaw Blvd, Hawthorne, CA");
+    }
+
+    function loadPins() {
+      try {
+        const raw = window.BlueLotNative ? BlueLotNative.getPins() : localStorage.getItem(PIN_KEY);
+        const parsed = JSON.parse(raw || "[]");
+        pins = Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+      } catch (err) {
+        pins = [];
+      }
+    }
+
+    function savePins() {
+      const raw = JSON.stringify(pins);
+      try {
+        if (window.BlueLotNative) BlueLotNative.setPins(raw);
+        else localStorage.setItem(PIN_KEY, raw);
+      } catch (err) { /* ignore */ }
+    }
+
+    function countsOf(stalls) {
+      return {
+        open: stalls.filter((stall) => stall.availability === "open").length,
+        busy: stalls.filter((stall) => stall.availability === "busy").length,
+        offline: stalls.filter((stall) => stall.availability === "offline").length,
+        pinned: pins.length,
+      };
+    }
+
+    function visibleStalls() {
+      const stalls = state ? state.stalls : [];
+      const needle = query.trim();
+      return stalls.filter((stall) => {
+        if (needle && !stall.name.includes(needle)) return false;
+        if (needle) return true;
+        if (filter === "pinned") return pins.includes(stall.name);
+        return stall.availability === filter;
+      });
+    }
+
+    function icon(name) {
+      if (name === "open") return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 7v5a4 4 0 0 0 8 0V7"/><path d="M12 16v4"/><path d="M8 21h8"/></svg>';
+      if (name === "busy") return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="7" width="16" height="10" rx="2"/><path d="M19 10h2v4h-2"/><path d="M7 11v2"/></svg>';
+      if (name === "offline") return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 7v5a4 4 0 0 0 6.5 3"/><path d="M4 4l16 16"/><path d="M12 16v4"/><path d="M8 21h8"/></svg>';
+      return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.2 1 6.1L12 16.8 6.6 19.7l1-6.1L3.2 9.4l6.1-.9L12 3z"/></svg>';
+    }
+
+    function pillClass(availability) {
+      if (availability === "open") return "pill open";
+      if (availability === "busy") return "pill busy";
+      return "pill";
+    }
+
+    function clockIcon() {
+      return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></svg>';
+    }
+
+    function star(filled) {
+      return '<svg class="star' + (filled ? " filled" : "") + '" width="16" height="16" viewBox="0 0 24 24" fill="' + (filled ? "currentColor" : "none") + '" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.2 1 6.1L12 16.8 6.6 19.7l1-6.1L3.2 9.4l6.1-.9L12 3z"/></svg>';
+    }
+
+    function renderDock(counts) {
+      $("dock-row").innerHTML = FILTERS.map((item) => {
+        const count = counts[item.id];
+        const pressed = filter === item.id && !query.trim();
+        return '<button type="button" data-filter="' + item.id + '" aria-pressed="' + pressed + '">' +
+          icon(item.id) + '<span>' + item.label + ' <b>' + count + '</b></span></button>';
+      }).join("");
+    }
+
+    function renderList() {
+      const root = $("list");
+      if (!state) {
+        root.innerHTML = "";
+        return;
+      }
+      if (failed && !state.live && state.stalls.length === 0) {
+        root.innerHTML = '<div class="feed"><h2>Feed unavailable</h2><p>Couldn\'t reach the charger feed.</p><button class="retry" id="retry" type="button">Try again</button></div>';
+        return;
+      }
+      const visible = visibleStalls();
+      if (visible.length === 0) {
+        const title = filter === "open" && !query ? "Nothing open right now" : "No stalls match";
+        const copy = filter === "pinned"
+          ? "Star a stall to keep it here."
+          : query
+            ? "No stall numbered " + esc(query) + "."
+            : "Try another filter, or check back after the next refresh.";
+        root.innerHTML = '<div class="empty"><h2>' + title + '</h2><p>' + copy + '</p></div>';
+        return;
+      }
+      const groups = new Map();
+      for (const stall of visible) {
+        const list = groups.get(stall.floor) || [];
+        list.push(stall);
+        groups.set(stall.floor, list);
+      }
+      const floors = [...groups.entries()].sort((a, b) => a[0] - b[0]);
+      root.innerHTML = '<div class="floors">' + floors.map(([floor, group]) => {
+        const title = floor === 0 ? "Unassigned" : "Floor " + floor;
+        const cards = group.map((stall) => {
+          const pinned = pins.includes(stall.name);
+          const long = stall.availability === "busy" && stall.sessionSeconds != null && stall.sessionSeconds > LONG_SESSION_SECONDS;
+          return '<li><button type="button" class="stall ' + stall.availability + '" data-stall="' + esc(stall.name) + '">' +
+            '<span class="stall-top"><span class="stall-name">' + esc(stall.name) + '</span>' +
+            (pinned ? star(true) : "") + '</span>' +
+            (long ? '<span class="clock">' + clockIcon() + esc(sessionBadge(stall.sessionSeconds)) + '</span>' : "") +
+            '<span class="stall-bot"><span class="bank">' + (stall.bank ? "Bank " + esc(stall.bank) : "J1772") + '</span>' +
+            '<span class="' + pillClass(stall.availability) + '">' + statusLabel(stall.availability) + '</span></span>' +
+            '</button></li>';
+        }).join("");
+        return '<section><div class="floor-h"><h2>' + title + '</h2><p>' + group.length + ' shown</p></div><ul class="grid">' + cards + '</ul></section>';
+      }).join("") + '</div>';
+    }
+
+    function renderSheet() {
+      const root = $("sheet-root");
+      if (!state || !selected) {
+        root.innerHTML = "";
+        return;
+      }
+      const stall = state.stalls.find((item) => item.name === selected);
+      if (!stall) {
+        root.innerHTML = "";
+        selected = null;
+        return;
+      }
+      const pinned = pins.includes(stall.name);
+      const where = (stall.floor === 0 ? "Unassigned" : "Floor " + stall.floor) + (stall.bank ? " · Bank " + esc(stall.bank) : "");
+      const long = stall.availability === "busy" && stall.sessionSeconds != null && stall.sessionSeconds > LONG_SESSION_SECONDS;
+      let seenFact = '<div class="fact wide"><dt>Last seen</dt><dd>No recent telemetry</dd></div>';
+      if (stall.seenAt != null) {
+        const iso = new Date(stall.seenAt * 1000).toISOString();
+        const seen = seenAbsolute ? formatLocal(iso) : formatAgo(iso);
+        seenFact = '<button class="fact wide" id="seen" type="button" aria-pressed="' + seenAbsolute + '"><dt>Last seen</dt><dd>' + esc(seen) + '</dd></button>';
+      }
+      root.innerHTML =
+        '<button class="shade" type="button" id="shade" aria-label="Close stall details"></button>' +
+        '<article class="sheet" role="dialog" aria-modal="true" aria-labelledby="stall-title">' +
+          '<div class="sheet-h"><div><p class="where">' + where + '</p><h2 id="stall-title">' + esc(stall.name) + '</h2></div>' +
+          '<button class="icon-btn" id="close" type="button" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>' +
+          '<div class="sheet-pills" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px"><span class="' + pillClass(stall.availability) + '">' + statusLabel(stall.availability) + '</span>' +
+          (long ? '<span class="clock" style="margin-top:0">' + clockIcon() + esc(formatDuration(stall.sessionSeconds)) + '</span>' : "") +
+          '</div>' +
+          '<dl class="facts">' +
+            '<div class="fact"><dt>Plug</dt><dd>' + (stall.pluggedIn ? "Vehicle connected" : "Plug free") + '</dd></div>' +
+            '<div class="fact"><dt>Power</dt><dd>' + esc(stall.amps || "—") + ' A · ' + esc(kwLabel(stall)) + '</dd></div>' +
+            '<div class="fact"><dt>Voltage</dt><dd>' + (stall.volts ? stall.volts + " V" : "—") + '</dd></div>' +
+            '<div class="fact"><dt>Session</dt><dd>' + (stall.sessionSeconds != null ? esc(formatDuration(stall.sessionSeconds)) : "—") + '</dd></div>' +
+            '<div class="fact"><dt>Row</dt><dd>' + esc(stall.gateway) + '</dd></div>' +
+            seenFact +
+          '</dl>' +
+          '<div class="actions">' +
+            '<button class="ghost" id="pin" type="button">' + star(pinned) + (pinned ? "Saved" : "Save stall") + '</button>' +
+            '<a class="go" id="maps" href="' + esc(mapsHref(state)) + '"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Directions</a>' +
+          '</div>' +
+        '</article>';
+    }
+
+    function render() {
+      const stalls = state ? state.stalls : [];
+      const counts = countsOf(stalls);
+      $("sub").textContent = state
+        ? ((state.city || "Hawthorne") + " J1772 · " + state.site)
+        : "Hawthorne garage";
+      $("count").textContent = state ? String(counts.open) : "–";
+      $("meta").innerHTML = state
+        ? ("open of " + stalls.length + " stalls · <span class=\"busy-count\">" + counts.busy + " in use</span> · " + counts.offline + " offline")
+        : "Checking the garage…";
+      $("when").textContent = state
+        ? ((state.live ? "Updated " : "Saved reading · ") + (state.fetchedAt ? formatAgo(state.fetchedAt) : "—"))
+        : "";
+      const note = $("note");
+      if (state && !state.live) {
+        note.hidden = false;
+        note.textContent = "Live feed didn't answer. This is the last full reading, not the current second.";
+      } else {
+        note.hidden = true;
+        note.textContent = "";
+      }
+      const addr = $("addr");
+      if (state) {
+        addr.hidden = false;
+        addr.href = mapsHref(state);
+        addr.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>' +
+          esc([state.address, state.city].filter(Boolean).join(", ") || "Hawthorne");
+      } else {
+        addr.hidden = true;
+      }
+      $("refresh").disabled = pending;
+      $("refresh-icon").classList.toggle("spin", pending);
+      renderDock(counts);
+      renderList();
+      renderSheet();
+    }
+
+    function refresh() {
+      pending = true;
+      render();
+      if (window.BlueLotNative) BlueLotNative.refresh();
+      else {
+        pending = false;
+        if (!state) state = FALLBACK;
+        failed = true;
+        render();
+      }
+    }
+
+    window.onSitePayload = function (raw) {
+      pending = false;
+      if (typeof raw === "string" && raw) {
+        try {
+          const next = fromRaw(JSON.parse(raw));
+          if (!(state && state.live && !next.live)) {
+            state = next;
+            failed = false;
+          }
+        } catch (err) {
+          failed = true;
+          if (!state) state = FALLBACK;
+        }
+      } else {
+        failed = true;
+        if (!state || !state.live) state = FALLBACK;
+      }
+      render();
+    };
+
+    window.blueLotBack = function () {
+      if (!selected) return false;
+      selected = null;
+      render();
+      return true;
+    };
+
+    function togglePin(name) {
+      pins = pins.includes(name) ? pins.filter((item) => item !== name) : pins.concat(name);
+      savePins();
+      render();
+    }
+
+    document.addEventListener("click", (event) => {
+      const filterBtn = event.target.closest("[data-filter]");
+      if (filterBtn) {
+        filter = filterBtn.getAttribute("data-filter");
+        query = "";
+        $("q").value = "";
+        render();
+        return;
+      }
+      const stallBtn = event.target.closest("[data-stall]");
+      if (stallBtn) {
+        selected = stallBtn.getAttribute("data-stall");
+        seenAbsolute = false;
+        render();
+        return;
+      }
+      if (event.target.closest("#shade") || event.target.closest("#close")) {
+        selected = null;
+        seenAbsolute = false;
+        render();
+        return;
+      }
+      if (event.target.closest("#seen")) {
+        seenAbsolute = !seenAbsolute;
+        renderSheet();
+        return;
+      }
+      if (event.target.closest("#pin") && selected) {
+        togglePin(selected);
+        return;
+      }
+      if (event.target.closest("#retry") || event.target.closest("#refresh")) {
+        refresh();
+      }
+    });
+
+    $("q").addEventListener("input", (event) => {
+      query = event.target.value.replace(/[^\d]/g, "");
+      event.target.value = query;
+      renderList();
+      renderDock(countsOf(state ? state.stalls : []));
+    });
+    $("q").addEventListener("focus", () => $("dock").classList.add("hidden"));
+    $("q").addEventListener("blur", () => $("dock").classList.remove("hidden"));
+
+    loadPins();
+    render();
+    refresh();
+    setInterval(() => { now = Date.now(); if (state) $("when").textContent = (state.live ? "Updated " : "Saved reading · ") + formatAgo(state.fetchedAt); }, 1000);
+    setInterval(() => { if (!pending) refresh(); }, 30000);
+    setTimeout(() => {
+      if (!state) {
+        state = FALLBACK;
+        failed = true;
+        pending = false;
+        render();
+      }
+    }, 12000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-bg: #0c1110;
+  --color-surface: #151c1a;
+  --color-raised: #1c2522;
+  --color-fg: #e8f2ec;
+  --color-muted: #8b9a92;
+  --color-line: #2c3834;
+  --color-open: #3ddc84;
+  --color-open-ink: #062014;
+  --color-busy: #ff4d5a;
+  --color-busy-ink: #2a070b;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html,
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    text-rendering: optimizeLegibility;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-open);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+}
+
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.live-dot {
+  animation: live-pulse 1.8s ease-in-out infinite;
+}
+
+.dock {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.sheet-pad {
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+}

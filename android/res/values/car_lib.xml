@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="car_app_library_version" translatable="false">1.4.0</string>
+    <integer name="content_limit_grid">6</integer>
+    <integer name="content_limit_list">6</integer>
+    <integer name="content_limit_pane">4</integer>
+    <integer name="content_limit_place_list">6</integer>
+    <integer name="content_limit_route_list">3</integer>
+    <color name="carColorBlue">#FF669DF6</color>
+    <color name="carColorGreen">#FF61AC70</color>
+    <color name="carColorRed">#FFEE675C</color>
+    <color name="carColorYellow">#FFE9A240</color>
+</resources>

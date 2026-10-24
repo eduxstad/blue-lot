@@ -1,0 +1,10 @@
+node_modules/
+.grok/
+.tanstack/
+.vercel/
+artifacts/
+attachments/
+dist/
+*.keystore
+android/build/
+AGENTS.md
