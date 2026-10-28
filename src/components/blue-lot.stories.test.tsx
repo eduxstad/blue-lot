@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BlueLot } from "./blue-lot";
+import { classifyAxis, pageAfterSwipe, swipeDirection, swipeTargetBlocked } from "./page-swipe";
 import { appVersion } from "@/lib/app-version";
 import { LONG_SESSION_SECONDS, type ChargerResult, type Stall } from "@/lib/chargers";
 
@@ -228,5 +229,177 @@ describe("story: a missing feed", () => {
     render(<BlueLot initial={{ ok: false, error: "Couldn't refresh the charger feed." }} />);
     expect(screen.getByRole("heading", { name: "Feed unavailable" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+});
+
+const PAGES = ["open", "busy", "offline", "pinned"] as const;
+
+function dockPressed(name: RegExp) {
+  const nav = screen.getByRole("navigation", { name: "Stall filters" });
+  return within(nav).getByRole("button", { name }).getAttribute("aria-pressed");
+}
+
+function touchSwipe(target: Element, dx: number, dy = 0, startX = 180) {
+  const startY = 220;
+  const point = {
+    pointerId: 1,
+    pointerType: "touch" as const,
+    isPrimary: true,
+  };
+  fireEvent.pointerDown(target, { ...point, clientX: startX, clientY: startY });
+  fireEvent.pointerMove(target, { ...point, clientX: startX + dx / 2, clientY: startY + dy / 2 });
+  fireEvent.pointerMove(target, { ...point, clientX: startX + dx, clientY: startY + dy });
+  fireEvent.pointerUp(target, { ...point, clientX: startX + dx, clientY: startY + dy });
+}
+
+describe("page swipe decisions", () => {
+  it("treats a vertical drag as scrolling", () => {
+    expect(classifyAxis(18, 140)).toBe("v");
+    expect(swipeDirection(18, 140, "v")).toBeNull();
+  });
+
+  it("turns a left drag into the next page and does not wrap", () => {
+    expect(classifyAxis(-90, 8)).toBe("h");
+    expect(swipeDirection(-90, 8, "h")).toBe("next");
+    expect(swipeDirection(40, 4, "h")).toBeNull();
+    expect(pageAfterSwipe(PAGES, "open", "next")).toBe("busy");
+    expect(pageAfterSwipe(PAGES, "pinned", "next")).toBeNull();
+    expect(pageAfterSwipe(PAGES, "open", "prev")).toBeNull();
+    expect(pageAfterSwipe(PAGES, "all", "next")).toBe("open");
+    expect(pageAfterSwipe(PAGES, "all", "prev")).toBeNull();
+  });
+
+  it("ignores drags that start on a field or an open sheet", () => {
+    const field = document.createElement("input");
+    const sheet = document.createElement("div");
+    sheet.setAttribute("role", "dialog");
+    const inside = document.createElement("button");
+    sheet.append(inside);
+    expect(swipeTargetBlocked(field)).toBe(true);
+    expect(swipeTargetBlocked(inside)).toBe(true);
+    expect(swipeTargetBlocked(document.createElement("button"))).toBe(false);
+  });
+});
+
+describe("story: swiping between pages", () => {
+  it("follows the bottom nav and keeps the pressed tab in sync", () => {
+    render(<BlueLot initial={story} />);
+    const main = screen.getByRole("main");
+    expect(dockPressed(/^Open/)).toBe("true");
+
+    touchSwipe(main, -160, 6);
+    expect(dockPressed(/^Open/)).toBe("false");
+    expect(dockPressed(/In use/)).toBe("true");
+    expect(screen.getByRole("button", { name: /1050/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /1054/ })).toBeNull();
+
+    touchSwipe(main, -160, 4);
+    expect(dockPressed(/Offline/)).toBe("true");
+    expect(screen.getByRole("button", { name: /1051/ })).toBeTruthy();
+
+    touchSwipe(main, -160, 4);
+    expect(dockPressed(/Saved/)).toBe("true");
+    expect(screen.getByText("Star a stall to keep it here.")).toBeTruthy();
+
+    touchSwipe(main, -160, 4);
+    expect(dockPressed(/Saved/)).toBe("true");
+    expect(screen.getByText("Star a stall to keep it here.")).toBeTruthy();
+
+    touchSwipe(main, 160, 4);
+    expect(dockPressed(/Offline/)).toBe("true");
+    expect(screen.getByRole("button", { name: /1051/ })).toBeTruthy();
+  });
+
+  it("leaves the page alone when the drag is vertical, short, from the edge, or a mouse drag", () => {
+    render(<BlueLot initial={story} />);
+    const main = screen.getByRole("main");
+
+    touchSwipe(main, 24, 220);
+    expect(dockPressed(/^Open/)).toBe("true");
+    expect(screen.getByRole("button", { name: /1054/ })).toBeTruthy();
+
+    touchSwipe(main, -36, 4);
+    expect(dockPressed(/^Open/)).toBe("true");
+
+    touchSwipe(main, -180, 4, 8);
+    expect(dockPressed(/^Open/)).toBe("true");
+
+    fireEvent.pointerDown(main, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 180,
+      clientY: 220,
+      isPrimary: true,
+    });
+    fireEvent.pointerMove(main, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 20,
+      clientY: 224,
+      isPrimary: true,
+    });
+    fireEvent.pointerUp(main, {
+      pointerId: 1,
+      pointerType: "mouse",
+      clientX: 20,
+      clientY: 224,
+      isPrimary: true,
+    });
+    expect(dockPressed(/^Open/)).toBe("true");
+    expect(screen.queryByRole("button", { name: /1050/ })).toBeNull();
+  });
+
+  it("does not page on a wide screen, while searching, or while a stall sheet is open", async () => {
+    const user = userEvent.setup();
+    const previous = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+    try {
+      render(<BlueLot initial={story} />);
+      touchSwipe(screen.getByRole("main"), -180, 4);
+      expect(dockPressed(/^Open/)).toBe("true");
+    } finally {
+      if (previous) window.matchMedia = previous;
+      else Reflect.deleteProperty(window, "matchMedia");
+    }
+
+    cleanup();
+    render(<BlueLot initial={story} />);
+    await user.type(screen.getByRole("textbox", { name: "Search stall number" }), "1113");
+    touchSwipe(screen.getByRole("main"), -180, 4);
+    expect(dockPressed(/^Open/)).toBe("true");
+    expect(screen.getByRole("button", { name: /1113/ })).toBeTruthy();
+
+    cleanup();
+    render(<BlueLot initial={story} />);
+    await user.click(screen.getByRole("button", { name: /1054/ }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    touchSwipe(screen.getByRole("dialog"), -180, 4);
+    expect(dockPressed(/^Open/)).toBe("true");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /1050/ })).toBeNull();
+  });
+
+  it("does not open a stall when the gesture was a swipe, and a later tap still does", async () => {
+    const user = userEvent.setup();
+    render(<BlueLot initial={story} />);
+    const card = screen.getByRole("button", { name: /1054/ });
+    touchSwipe(card, 48, 2);
+    fireEvent.click(card);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(dockPressed(/^Open/)).toBe("true");
+
+    touchSwipe(screen.getByRole("main"), -160, 4);
+    expect(dockPressed(/In use/)).toBe("true");
+    await user.click(screen.getByRole("button", { name: /1050/ }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
   });
 });

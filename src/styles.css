@@ -30,6 +30,10 @@
     min-height: 100%;
   }
 
+  html {
+    overscroll-behavior-x: none;
+  }
+
   body {
     margin: 0;
     text-rendering: optimizeLegibility;
@@ -41,8 +45,36 @@
   }
 }
 
+@keyframes page-enter-next {
+  from {
+    transform: translateX(28px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes page-enter-prev {
+  from {
+    transform: translateX(-28px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.page-enter-next {
+  animation: page-enter-next 200ms ease-out;
+}
+
+.page-enter-prev {
+  animation: page-enter-prev 200ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .live-dot {
+  .live-dot,
+  .page-enter-next,
+  .page-enter-prev {
     animation: none;
   }
 }
