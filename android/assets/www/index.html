@@ -90,6 +90,7 @@
       font-size: 12px; font-weight: 600; padding: 2px 8px;
       white-space: nowrap; overflow: hidden;
     }
+    .clock.open { background: var(--open); color: var(--ink); }
     .stall-bot { margin-top: auto; padding-top: 12px; }
     .empty, .feed {
       border-radius: 24px; border: 1px dashed var(--line); background: var(--surface); padding: 22px;
@@ -266,6 +267,42 @@
       return kw.toFixed(1) + " kW";
     }
 
+    const OPEN_KEY = "bluelot-open-since";
+    let openSince = {};
+
+    function readOpenSince() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(OPEN_KEY) || "{}");
+        const previous = {};
+        if (parsed && typeof parsed === "object") {
+          for (const name of Object.keys(parsed)) {
+            if (typeof parsed[name] === "number" && Number.isFinite(parsed[name])) previous[name] = parsed[name];
+          }
+        }
+        return previous;
+      } catch (err) {
+        return {};
+      }
+    }
+
+    function trackOpen(stalls) {
+      const previous = readOpenSince();
+      const now = Date.now();
+      const next = {};
+      for (const stall of stalls) {
+        if (stall.availability !== "open") continue;
+        const prior = previous[stall.name];
+        next[stall.name] = typeof prior === "number" ? prior : now;
+      }
+      localStorage.setItem(OPEN_KEY, JSON.stringify(next));
+      return next;
+    }
+
+    function openForSeconds(since) {
+      if (typeof since !== "number") return null;
+      return Math.max(0, Math.round((Date.now() - since) / 1000));
+    }
+
     function sessionBadge(seconds) {
       const total = Math.max(0, Math.floor(seconds));
       const days = Math.floor(total / 86400);
@@ -438,9 +475,11 @@
         const cards = group.map((stall) => {
           const pinned = pins.includes(stall.name);
           const long = stall.availability === "busy" && stall.sessionSeconds != null && stall.sessionSeconds > LONG_SESSION_SECONDS;
+          const free = stall.availability === "open" ? openForSeconds(openSince[stall.name]) : null;
           return '<li><button type="button" class="stall ' + stall.availability + '" data-stall="' + esc(stall.name) + '">' +
             '<span class="stall-top"><span class="stall-name">' + esc(stall.name) + '</span>' +
             (pinned ? star(true) : "") + '</span>' +
+            (free != null ? '<span class="clock open">' + clockIcon() + esc(free < 60 ? "<1m" : sessionBadge(free)) + '</span>' : "") +
             (long ? '<span class="clock">' + clockIcon() + esc(sessionBadge(stall.sessionSeconds)) + '</span>' : "") +
             '<span class="stall-bot"><span class="bank">' + (stall.bank ? "Bank " + esc(stall.bank) : "J1772") + '</span>' +
             '<span class="' + pillClass(stall.availability) + '">' + statusLabel(stall.availability) + '</span></span>' +
@@ -483,7 +522,11 @@
             '<div class="fact"><dt>Plug</dt><dd>' + (stall.pluggedIn ? "Vehicle connected" : "Plug free") + '</dd></div>' +
             '<div class="fact"><dt>Power</dt><dd>' + esc(stall.amps || "—") + ' A · ' + esc(kwLabel(stall)) + '</dd></div>' +
             '<div class="fact"><dt>Voltage</dt><dd>' + (stall.volts ? stall.volts + " V" : "—") + '</dd></div>' +
-            '<div class="fact"><dt>Session</dt><dd>' + (stall.sessionSeconds != null ? esc(formatDuration(stall.sessionSeconds)) : "—") + '</dd></div>' +
+            '<div class="fact"><dt>' + (stall.availability === "open" ? "Open for" : "Session") + '</dt><dd>' +
+              (stall.availability === "open"
+                ? esc((() => { const free = openForSeconds(openSince[stall.name]); return free == null ? "—" : free < 60 ? "<1m" : formatDuration(free); })())
+                : (stall.sessionSeconds != null ? esc(formatDuration(stall.sessionSeconds)) : "—")) +
+            '</dd></div>' +
             '<div class="fact"><dt>Row</dt><dd>' + esc(stall.gateway) + '</dd></div>' +
             seenFact +
           '</dl>' +
@@ -495,6 +538,7 @@
     }
 
     function render() {
+      if (state && state.stalls) openSince = trackOpen(state.stalls);
       const stalls = state ? state.stalls : [];
       const counts = countsOf(stalls);
       $("sub").textContent = state

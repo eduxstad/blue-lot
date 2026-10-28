@@ -9,6 +9,8 @@ import {
   LONG_SESSION_SECONDS,
   statusLabel,
   type Stall,
+  trackOpenSince,
+  openForSeconds,
 } from "./chargers";
 
 const stall = (overrides: Partial<Stall> = {}): Stall => ({
@@ -24,6 +26,38 @@ const stall = (overrides: Partial<Stall> = {}): Stall => ({
   seenAt: null,
   portId: null,
   ...overrides,
+});
+
+describe("trackOpenSince", () => {
+  const now = 1_700_000_000_000;
+
+  it("starts the clock the first time a stall is seen open", () => {
+    const next = trackOpenSince(
+      [
+        { name: "1054", availability: "open" },
+        { name: "1050", availability: "busy" },
+      ],
+      {},
+      now,
+    );
+    expect(next).toEqual({ "1054": now });
+    expect(openForSeconds(next["1054"], now + 125_000)).toBe(125);
+  });
+
+  it("keeps the original time while the stall stays open", () => {
+    const started = now - 2 * 60 * 60 * 1000;
+    const next = trackOpenSince([{ name: "1054", availability: "open" }], { "1054": started }, now);
+    expect(next["1054"]).toBe(started);
+    expect(openForSeconds(next["1054"], now)).toBe(2 * 60 * 60);
+  });
+
+  it("drops the clock when a stall is taken and starts over when it frees", () => {
+    const started = now - 5 * 60 * 1000;
+    const taken = trackOpenSince([{ name: "1054", availability: "busy" }], { "1054": started }, now);
+    expect(taken["1054"]).toBeUndefined();
+    const freed = trackOpenSince([{ name: "1054", availability: "open" }], taken, now + 1000);
+    expect(freed["1054"]).toBe(now + 1000);
+  });
 });
 
 describe("formatDuration", () => {

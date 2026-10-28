@@ -155,6 +155,25 @@ export function formatAgo(iso: string, now: number) {
   return `${days}d ago`;
 }
 
+export function trackOpenSince(
+  stalls: { name: string; availability: Availability }[],
+  previous: Record<string, number>,
+  now: number,
+) {
+  const next: Record<string, number> = {};
+  for (const stall of stalls) {
+    if (stall.availability !== "open") continue;
+    const prior = previous[stall.name];
+    next[stall.name] = typeof prior === "number" && Number.isFinite(prior) ? prior : now;
+  }
+  return next;
+}
+
+export function openForSeconds(since: number | undefined, now: number) {
+  if (typeof since !== "number" || !Number.isFinite(since)) return null;
+  return Math.max(0, Math.round((now - since) / 1000));
+}
+
 export function statusLabel(availability: Availability) {
   if (availability === "open") return "Open";
   if (availability === "busy") return "In use";

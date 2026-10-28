@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BlueLot } from "./blue-lot";
 import { LONG_SESSION_SECONDS, type ChargerResult, type Stall } from "@/lib/chargers";
@@ -158,6 +158,15 @@ describe("story: finding an in-use stall", () => {
     const card = screen.getByRole("button", { name: /1054/ });
     expect(card.className).toContain("border-open");
     expect(card.className).not.toContain("border-busy");
+  });
+
+  it("shows how long an open stall has been free", async () => {
+    const started = Date.now() - (2 * 3600 + 5 * 60) * 1000;
+    localStorage.setItem("bluelot-open-since", JSON.stringify({ "1054": started }));
+    render(<BlueLot initial={story} />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /1054/ }).textContent).toContain("2h 5m");
+    });
   });
 });
 

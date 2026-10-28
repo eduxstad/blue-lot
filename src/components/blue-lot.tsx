@@ -19,7 +19,9 @@ import {
   getChargers,
   kwLabel,
   LONG_SESSION_SECONDS,
+  openForSeconds,
   statusLabel,
+  trackOpenSince,
   type Availability,
   type ChargerResult,
   type Stall,
@@ -35,6 +37,7 @@ const FILTERS: { id: Filter; label: string; icon: typeof Plug }[] = [
 ];
 
 const PIN_KEY = "bluelot-pins";
+const OPEN_KEY = "bluelot-open-since";
 
 function mapsHref(address: string, city: string, state: string, zip: string) {
   const query = [address, city, state, zip].filter(Boolean).join(", ");
@@ -51,6 +54,7 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
   const [now, setNow] = useState<number | null>(null);
   const [pins, setPins] = useState<string[]>([]);
   const [pinsReady, setPinsReady] = useState(false);
+  const [openSince, setOpenSince] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
@@ -104,6 +108,27 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
 
   const snapshot = result.ok ? result.snapshot : null;
   const stalls = snapshot?.stalls ?? [];
+
+  useEffect(() => {
+    if (!snapshot) return;
+    let previous: Record<string, number> = {};
+    try {
+      const raw = localStorage.getItem(OPEN_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === "object") {
+          for (const [name, value] of Object.entries(parsed)) {
+            if (typeof value === "number" && Number.isFinite(value)) previous[name] = value;
+          }
+        }
+      }
+    } catch {
+      previous = {};
+    }
+    const next = trackOpenSince(snapshot.stalls, previous, Date.now());
+    localStorage.setItem(OPEN_KEY, JSON.stringify(next));
+    setOpenSince(next);
+  }, [snapshot]);
   const counts = useMemo(() => {
     return {
       open: stalls.filter((stall) => stall.availability === "open").length,
@@ -281,6 +306,9 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                         <StallCard
                           stall={stall}
                           pinned={pinSet.has(stall.name)}
+                          openSeconds={
+                            now == null ? null : openForSeconds(openSince[stall.name], now)
+                          }
                           onOpen={() => setSelected(stall.name)}
                         />
                       </li>
@@ -344,6 +372,7 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
         <StallSheet
           stall={active}
           now={now}
+          openSeconds={now == null ? null : openForSeconds(openSince[active.name], now)}
           pinned={pinSet.has(active.name)}
           maps={mapsHref(snapshot.address, snapshot.city, snapshot.state, snapshot.zip)}
           onClose={() => setSelected(null)}
@@ -389,10 +418,12 @@ function FilterButton({
 function StallCard({
   stall,
   pinned,
+  openSeconds,
   onOpen,
 }: {
   stall: Stall;
   pinned: boolean;
+  openSeconds: number | null;
   onOpen: () => void;
 }) {
   const open = stall.availability === "open";
@@ -416,6 +447,12 @@ function StallCard({
         <span className="font-mono text-2xl font-medium tracking-tight">{stall.name}</span>
         {pinned ? <Star className="size-4 fill-open text-open" aria-label="Saved" /> : null}
       </span>
+      {open && openSeconds != null ? (
+        <span className="mt-2 inline-flex max-w-full items-center gap-1 self-start rounded-full bg-open px-2 py-0.5 text-xs font-medium text-open-ink">
+          <Clock className="size-3 shrink-0" aria-hidden="true" />
+          <span className="truncate">{openSeconds < 60 ? "<1m" : sessionBadge(openSeconds)}</span>
+        </span>
+      ) : null}
       {long && stall.sessionSeconds != null ? (
         <span className="mt-2 inline-flex max-w-full items-center gap-1 self-start rounded-full bg-busy px-2 py-0.5 text-xs font-medium text-busy-ink">
           <Clock className="size-3 shrink-0" aria-hidden="true" />
@@ -460,6 +497,7 @@ function StatusPill({ availability }: { availability: Availability }) {
 function StallSheet({
   stall,
   now,
+  openSeconds,
   pinned,
   maps,
   onClose,
@@ -467,6 +505,7 @@ function StallSheet({
 }: {
   stall: Stall;
   now: number | null;
+  openSeconds: number | null;
   pinned: boolean;
   maps: string;
   onClose: () => void;
@@ -531,8 +570,18 @@ function StallSheet({
           <Detail term="Power" value={`${stall.amps || "—"} A · ${kwLabel(stall)}`} />
           <Detail term="Voltage" value={stall.volts ? `${stall.volts} V` : "—"} />
           <Detail
-            term="Session"
-            value={stall.sessionSeconds != null ? formatDuration(stall.sessionSeconds) : "—"}
+            term={stall.availability === "open" ? "Open for" : "Session"}
+            value={
+              stall.availability === "open"
+                ? openSeconds == null
+                  ? "—"
+                  : openSeconds < 60
+                    ? "<1m"
+                    : formatDuration(openSeconds)
+                : stall.sessionSeconds != null
+                  ? formatDuration(stall.sessionSeconds)
+                  : "—"
+            }
           />
           <Detail term="Row" value={stall.gateway} />
           <LastSeen seenAt={stall.seenAt} now={now} />

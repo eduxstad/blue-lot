@@ -94,6 +94,34 @@ public final class ChargerFeed {
         return new Snapshot(false, new ArrayList<Stall>());
     }
 
+    /** Seconds this stall has been seen open. The feed does not report it. */
+    public static long rememberOpen(android.content.Context context, String name, boolean open, long nowMs) {
+        android.content.SharedPreferences prefs = context.getSharedPreferences("bluelot-open-since", 0);
+        if (!open) {
+            if (prefs.contains(name)) prefs.edit().remove(name).apply();
+            return -1;
+        }
+        long since = prefs.getLong(name, -1);
+        if (since < 0) {
+            since = nowMs;
+            prefs.edit().putLong(name, since).apply();
+        }
+        return Math.max(0, (nowMs - since) / 1000);
+    }
+
+    public static String formatWatched(long seconds) {
+        if (seconds < 60) return "<1m";
+        long days = seconds / 86400;
+        long hours = (seconds % 86400) / 3600;
+        long minutes = (seconds % 3600) / 60;
+        if (days > 0) {
+            if (minutes > 0) return days + "d " + hours + "h " + minutes + "m";
+            return days + "d " + hours + "h";
+        }
+        if (hours > 0) return hours + "h " + minutes + "m";
+        return minutes + "m";
+    }
+
     public static String readStream(InputStream in) throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] buf = new byte[4096];

@@ -60,15 +60,25 @@ public class ChargerMediaService extends MediaBrowserService {
                 List<MediaBrowser.MediaItem> items = new ArrayList<MediaBrowser.MediaItem>();
                 if (ROOT.equals(parentId)) {
                     ChargerFeed.Snapshot snapshot = ChargerFeed.load(readFallback());
+                    long nowMs = System.currentTimeMillis();
+                    for (ChargerFeed.Stall stall : snapshot.stalls) {
+                        ChargerFeed.rememberOpen(
+                                ChargerMediaService.this,
+                                stall.name,
+                                "open".equals(stall.availability),
+                                nowMs);
+                    }
                     for (ChargerFeed.Stall stall : snapshot.openStalls()) {
                         String bank = stall.bank == null || stall.bank.length() == 0 ? "J1772" : "Bank " + stall.bank;
                         String floor = stall.floor == 0 ? "Unassigned" : "Floor " + stall.floor;
+                        long openSeconds = ChargerFeed.rememberOpen(
+                                ChargerMediaService.this, stall.name, true, nowMs);
                         Bundle extras = new Bundle();
                         extras.putInt(STYLE_PLAYABLE, STYLE_GRID);
                         MediaDescription desc = new MediaDescription.Builder()
                                 .setMediaId(stall.name)
                                 .setTitle(stall.name)
-                                .setSubtitle(floor + " · " + bank)
+                                .setSubtitle(floor + " · " + bank + " · open " + ChargerFeed.formatWatched(openSeconds))
                                 .setExtras(extras)
                                 .build();
                         items.add(new MediaBrowser.MediaItem(desc, MediaBrowser.MediaItem.FLAG_PLAYABLE));
