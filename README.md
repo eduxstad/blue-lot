@@ -6,7 +6,7 @@ Open stalls are green. In-use stalls are red. A clock badge marks a session long
 
 ## Phone
 
-The web app is the phone UI. A sideloadable APK is checked in at [src/Blue-Lot.apk](src/Blue-Lot.apk) and [public/Blue-Lot.apk](public/Blue-Lot.apk). The Android project that builds it is in [android/](android/).
+The web app is the phone UI. A sideloadable APK is checked in at [public/Blue-Lot.apk](public/Blue-Lot.apk). The Android project that builds it is in [android/](android/).
 
 ```bash
 npm install
