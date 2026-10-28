@@ -139,6 +139,8 @@ javac --release 8 -encoding UTF-8 -classpath "$CP" -d "$OUT/classes" \
   "$ROOT/java/com/bluelot/app/ChargerFeed.java" \
   "$ROOT/java/com/bluelot/app/ChargerCarService.java" \
   "$ROOT/java/com/bluelot/app/ChargerMediaService.java" \
+  "$ROOT/java/com/bluelot/app/StallAlerts.java" \
+  "$ROOT/java/com/bluelot/app/NotifyReceiver.java" \
   "$OUT/gen/androidx/car/app/R.java" \
   "$OUT/gen/com/bluelot/app/R.java"
 

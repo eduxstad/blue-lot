@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   BatteryCharging,
@@ -19,6 +19,7 @@ import {
   getChargers,
   kwLabel,
   LONG_SESSION_SECONDS,
+  newlyOpenStalls,
   openForSeconds,
   statusLabel,
   trackOpenSince,
@@ -38,6 +39,19 @@ const FILTERS: { id: Filter; label: string; icon: typeof Plug }[] = [
 
 const PIN_KEY = "bluelot-pins";
 const OPEN_KEY = "bluelot-open-since";
+const NOTIFY_KEY = "bluelot-notify";
+const IGNORED_KEY = "bluelot-notify-ignored";
+
+type NativeAlerts = {
+  notificationsEnabled?: () => boolean;
+  setNotifications?: (on: boolean) => boolean;
+};
+
+function nativeAlerts(): NativeAlerts | null {
+  if (typeof window === "undefined") return null;
+  const native = (window as unknown as { BlueLotNative?: NativeAlerts }).BlueLotNative;
+  return native ?? null;
+}
 
 function mapsHref(address: string, city: string, state: string, zip: string) {
   const query = [address, city, state, zip].filter(Boolean).join(", ");
@@ -55,6 +69,9 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
   const [pins, setPins] = useState<string[]>([]);
   const [pinsReady, setPinsReady] = useState(false);
   const [openSince, setOpenSince] = useState<Record<string, number>>({});
+  const [notify, setNotify] = useState(false);
+  const [ignored, setIgnored] = useState<string[]>([]);
+  const seenAvailability = useRef<Record<string, string> | null>(null);
 
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
@@ -106,7 +123,43 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
     }
   }
 
+  useEffect(() => {
+    const native = nativeAlerts();
+    if (native?.notificationsEnabled) {
+      setNotify(native.notificationsEnabled());
+      return;
+    }
+    try {
+      setNotify(localStorage.getItem(NOTIFY_KEY) === "1");
+      const raw = localStorage.getItem(IGNORED_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) setIgnored(parsed.filter((item) => typeof item === "string"));
+      }
+    } catch {
+      setNotify(false);
+    }
+  }, []);
+
   const snapshot = result.ok ? result.snapshot : null;
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const prior = seenAvailability.current;
+    const current: Record<string, string> = {};
+    for (const stall of snapshot.stalls) current[stall.name] = stall.availability;
+    seenAvailability.current = current;
+    if (!notify || !snapshot.live || !prior) return;
+    if (nativeAlerts()) return;
+    const opened = newlyOpenStalls(prior, snapshot.stalls, ignored);
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    for (const name of opened) {
+      const stall = snapshot.stalls.find((item) => item.name === name);
+      const where = stall ? (stall.floor === 0 ? "Unassigned" : `Floor ${stall.floor}`) : "";
+      const bank = stall?.bank ? ` · Bank ${stall.bank}` : "";
+      new Notification(`Stall ${name} is open`, { body: `${where}${bank}` });
+    }
+  }, [snapshot, notify, ignored]);
   const stalls = snapshot?.stalls ?? [];
 
   useEffect(() => {
@@ -169,6 +222,27 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
     setPins((current) =>
       current.includes(name) ? current.filter((item) => item !== name) : [...current, name],
     );
+  }
+
+  async function setNotifyEnabled(on: boolean) {
+    const native = nativeAlerts();
+    if (native?.setNotifications) {
+      setNotify(native.setNotifications(on));
+      return;
+    }
+    if (!on) {
+      localStorage.setItem(NOTIFY_KEY, "0");
+      setNotify(false);
+      return;
+    }
+    if (typeof Notification === "undefined") {
+      setNotify(false);
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    const granted = permission === "granted";
+    localStorage.setItem(NOTIFY_KEY, granted ? "1" : "0");
+    setNotify(granted);
   }
 
   return (
@@ -257,6 +331,17 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                 {[snapshot.address, snapshot.city].filter(Boolean).join(", ") || "Hawthorne"}
               </a>
             ) : null}
+            <label className="mt-4 flex items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                className="size-5 accent-open"
+                checked={notify}
+                onChange={(event) => {
+                  void setNotifyEnabled(event.target.checked);
+                }}
+              />
+              Notify when a stall opens
+            </label>
           </section>
 
           <label className="flex items-center gap-2 rounded-2xl border border-line bg-surface px-3">

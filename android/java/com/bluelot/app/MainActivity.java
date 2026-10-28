@@ -6,7 +6,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
-import android.os.Bundle;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -83,6 +84,23 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != 41) return;
+        boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        if (granted) executor.execute(() -> StallAlerts.enable(MainActivity.this));
+        pushNotifyState(granted);
+    }
+
+    private void pushNotifyState(boolean on) {
+        if (webView == null) return;
+        webView.post(() -> {
+            if (webView == null) return;
+            webView.evaluateJavascript("window.onNotifyState&&window.onNotifyState(" + on + ")", null);
+        });
+    }
+
+    @Override
     public void onBackPressed() {
         if (webView == null) {
             super.onBackPressed();
@@ -146,7 +164,31 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void refresh() {
             final int gen = generation.incrementAndGet();
-            executor.execute(() -> deliver(gen, download()));
+            executor.execute(() -> {
+                String body = download();
+                StallAlerts.observe(MainActivity.this, body);
+                deliver(gen, body);
+            });
+        }
+
+        @JavascriptInterface
+        public boolean notificationsEnabled() {
+            return StallAlerts.enabled(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public boolean setNotifications(boolean on) {
+            if (!on) {
+                StallAlerts.disable(MainActivity.this);
+                return false;
+            }
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                runOnUiThread(() -> requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 41));
+                return false;
+            }
+            executor.execute(() -> StallAlerts.enable(MainActivity.this));
+            return true;
         }
 
         @JavascriptInterface

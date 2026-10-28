@@ -11,6 +11,7 @@ import {
   type Stall,
   trackOpenSince,
   openForSeconds,
+  newlyOpenStalls,
 } from "./chargers";
 
 const stall = (overrides: Partial<Stall> = {}): Stall => ({
@@ -57,6 +58,30 @@ describe("trackOpenSince", () => {
     expect(taken["1054"]).toBeUndefined();
     const freed = trackOpenSince([{ name: "1054", availability: "open" }], taken, now + 1000);
     expect(freed["1054"]).toBe(now + 1000);
+  });
+});
+
+describe("newlyOpenStalls", () => {
+  it("alerts only when a known stall becomes open", () => {
+    expect(
+      newlyOpenStalls(
+        { "1050": "busy", "1054": "open", "1051": "offline" },
+        [
+          { name: "1050", availability: "open" },
+          { name: "1054", availability: "open" },
+          { name: "1051", availability: "offline" },
+          { name: "9999", availability: "open" },
+        ],
+        [],
+      ),
+    ).toEqual(["1050"]);
+  });
+
+  it("stays quiet on the first reading and for ignored stalls", () => {
+    expect(newlyOpenStalls(null, [{ name: "1050", availability: "open" }], [])).toEqual([]);
+    expect(newlyOpenStalls({ "1050": "busy" }, [{ name: "1050", availability: "open" }], ["1050"])).toEqual(
+      [],
+    );
   });
 });
 

@@ -58,6 +58,8 @@
     .meta { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
     .busy-count { color: var(--busy); }
     .when { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+    .notify { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; }
+    .notify input { width: 18px; height: 18px; }
     .note { margin: 8px 0 0; font-size: 14px; }
     .addr { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 14px; }
     .addr svg { color: var(--open); }
@@ -170,6 +172,7 @@
       <p class="meta" id="meta">Checking the garage…</p>
       <p class="when" id="when"></p>
       <p class="note" id="note" hidden></p>
+      <label class="notify"><input id="notify" type="checkbox" /> Notify when a stall opens</label>
       <a class="addr" id="addr" hidden target="_blank" rel="noreferrer"></a>
     </section>
     <label class="search">
@@ -675,6 +678,20 @@
     $("q").addEventListener("blur", () => $("dock").classList.remove("hidden"));
 
     loadPins();
+    const notifyBox = $("notify");
+    window.onNotifyState = (on) => { if (notifyBox) notifyBox.checked = !!on; };
+    if (notifyBox && window.BlueLotNative && BlueLotNative.notificationsEnabled) {
+      notifyBox.checked = !!BlueLotNative.notificationsEnabled();
+    }
+    if (notifyBox) {
+      notifyBox.addEventListener("change", () => {
+        if (!(window.BlueLotNative && BlueLotNative.setNotifications)) {
+          notifyBox.checked = false;
+          return;
+        }
+        notifyBox.checked = !!BlueLotNative.setNotifications(notifyBox.checked);
+      });
+    }
     render();
     refresh();
     setInterval(() => { now = Date.now(); if (state) $("when").textContent = (state.live ? "Updated " : "Saved reading · ") + formatAgo(state.fetchedAt); }, 1000);

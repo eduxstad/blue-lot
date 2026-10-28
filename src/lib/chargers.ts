@@ -174,6 +174,22 @@ export function openForSeconds(since: number | undefined, now: number) {
   return Math.max(0, Math.round((now - since) / 1000));
 }
 
+export function newlyOpenStalls(
+  previous: Record<string, string> | null,
+  stalls: { name: string; availability: string }[],
+  ignored: readonly string[],
+) {
+  if (!previous) return [];
+  const skip = new Set(ignored);
+  return stalls
+    .filter((stall) => {
+      if (stall.availability !== "open" || skip.has(stall.name)) return false;
+      const prior = previous[stall.name];
+      return typeof prior === "string" && prior.length > 0 && prior !== "open";
+    })
+    .map((stall) => stall.name);
+}
+
 export function statusLabel(availability: Availability) {
   if (availability === "open") return "Open";
   if (availability === "busy") return "In use";
