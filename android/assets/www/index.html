@@ -23,7 +23,8 @@
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); }
-    body { min-height: 100dvh; text-rendering: optimizeLegibility; }
+    html { overscroll-behavior-x: none; }
+    body { min-height: 100dvh; text-rendering: optimizeLegibility; touch-action: pan-y; overflow-x: clip; }
     button, a, input { font: inherit; color: inherit; }
     button { cursor: pointer; border: 0; background: none; }
     button:focus-visible, a:focus-visible, input:focus-visible {
@@ -162,8 +163,12 @@
     .go { background: var(--open); color: var(--ink); }
     .star { color: var(--open); }
     .star.filled { fill: var(--open); }
+    @keyframes page-enter-next { from { transform: translateX(28px); } to { transform: none; } }
+    @keyframes page-enter-prev { from { transform: translateX(-28px); } to { transform: none; } }
+    .page-enter-next { animation: page-enter-next 200ms ease-out; }
+    .page-enter-prev { animation: page-enter-prev 200ms ease-out; }
     @media (prefers-reduced-motion: reduce) {
-      .dot.live, .icon-btn svg.spin { animation: none; }
+      .dot.live, .icon-btn svg.spin, .page-enter-next, .page-enter-prev { animation: none; }
     }
   </style>
 </head>
@@ -666,7 +671,132 @@
       render();
     }
 
+    const SWIPE_SLOP = 12;
+    const SWIPE_MIN = 64;
+    const SWIPE_DOMINANCE = 1.5;
+    let swipe = null;
+    let swallowClick = false;
+
+    function reducedMotion() {
+      return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+
+    function paintSwipe(dx) {
+      const list = $("list");
+      if (!list || reducedMotion()) return;
+      const index = FILTERS.findIndex((item) => item.id === filter);
+      const past = (index <= 0 && dx > 0) || (index === FILTERS.length - 1 && dx < 0);
+      let px = past ? dx * 0.22 : dx * 0.34;
+      const cap = past ? 36 : 72;
+      px = Math.max(-cap, Math.min(cap, px));
+      list.style.transition = "none";
+      list.style.transform = "translate3d(" + px + "px,0,0)";
+    }
+
+    function releaseSwipe(animateBack) {
+      const list = $("list");
+      if (!list) return;
+      if (animateBack && !reducedMotion()) {
+        list.style.transition = "transform 180ms ease-out";
+        list.style.transform = "translate3d(0,0,0)";
+        return;
+      }
+      list.style.transition = "";
+      list.style.transform = "";
+    }
+
+    function swipeBlockedTarget(target) {
+      return Boolean(target && target.closest && target.closest("input, textarea, select, a, #sheet-root, .notify, .search"));
+    }
+
+    document.addEventListener("touchstart", (event) => {
+      if (event.touches.length !== 1) {
+        swipe = null;
+        releaseSwipe(true);
+        return;
+      }
+      if (selected || swipeBlockedTarget(event.target)) return;
+      const touch = event.touches[0];
+      const edge = 28;
+      if (window.innerWidth >= 120 && (touch.clientX <= edge || touch.clientX >= window.innerWidth - edge)) return;
+      swipe = { x: touch.clientX, y: touch.clientY, dx: 0, dy: 0, axis: null };
+    }, { passive: true });
+
+    document.addEventListener("touchmove", (event) => {
+      if (!swipe || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      swipe.dx = touch.clientX - swipe.x;
+      swipe.dy = touch.clientY - swipe.y;
+      if (!swipe.axis) {
+        const ax = Math.abs(swipe.dx);
+        const ay = Math.abs(swipe.dy);
+        if (ax < SWIPE_SLOP && ay < SWIPE_SLOP) return;
+        swipe.axis = ax >= SWIPE_SLOP && ax > ay * SWIPE_DOMINANCE ? "h" : "v";
+      }
+      if (swipe.axis !== "h") return;
+      if (event.cancelable) event.preventDefault();
+      paintSwipe(swipe.dx);
+    }, { passive: false });
+
+    function endSwipe(cancelled) {
+      if (!swipe) return;
+      const finished = swipe;
+      swipe = null;
+      if (finished.axis !== "h") return;
+      if (Math.abs(finished.dx) >= SWIPE_SLOP) {
+        swallowClick = true;
+        setTimeout(() => { swallowClick = false; }, 350);
+      }
+      const ax = Math.abs(finished.dx);
+      const ay = Math.abs(finished.dy);
+      const direction = !cancelled && finished.axis === "h" && ax >= SWIPE_MIN && ax > ay * SWIPE_DOMINANCE
+        ? (finished.dx < 0 ? 1 : -1)
+        : 0;
+      const index = FILTERS.findIndex((item) => item.id === filter);
+      const next = index + direction;
+      if (!direction || next < 0 || next >= FILTERS.length) {
+        releaseSwipe(true);
+        return;
+      }
+      swallowClick = true;
+      releaseSwipe(false);
+      filter = FILTERS[next].id;
+      query = "";
+      const field = $("q");
+      if (field) field.value = "";
+      const list = $("list");
+      if (list) list.classList.remove("page-enter-next", "page-enter-prev");
+      render();
+      if (list && !reducedMotion()) {
+        void list.offsetWidth;
+        list.classList.add(direction > 0 ? "page-enter-next" : "page-enter-prev");
+      }
+    }
+
+    document.addEventListener("touchend", (event) => {
+      if (swipe && event.changedTouches[0]) {
+        const touch = event.changedTouches[0];
+        swipe.dx = touch.clientX - swipe.x;
+        swipe.dy = touch.clientY - swipe.y;
+        if (!swipe.axis) {
+          const ax = Math.abs(swipe.dx);
+          const ay = Math.abs(swipe.dy);
+          if (!(ax < SWIPE_SLOP && ay < SWIPE_SLOP)) {
+            swipe.axis = ax >= SWIPE_SLOP && ax > ay * SWIPE_DOMINANCE ? "h" : "v";
+          }
+        }
+      }
+      endSwipe(false);
+    });
+    document.addEventListener("touchcancel", () => endSwipe(true));
+
     document.addEventListener("click", (event) => {
+      if (swallowClick) {
+        swallowClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       const filterBtn = event.target.closest("[data-filter]");
       if (filterBtn) {
         filter = filterBtn.getAttribute("data-filter");

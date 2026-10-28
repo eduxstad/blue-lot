@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { usePageSwipe } from "./use-page-swipe";
 import {
   BatteryCharging,
   Clock,
@@ -37,6 +38,9 @@ const FILTERS: { id: Filter; label: string; icon: typeof Plug }[] = [
   { id: "pinned", label: "Saved", icon: Star },
 ];
 
+/** Mobile page order. Matches the bottom navigation, not the desktop "All" chip. */
+const SWIPE_PAGES: readonly Filter[] = FILTERS.map((item) => item.id);
+
 const PIN_KEY = "bluelot-pins";
 const OPEN_KEY = "bluelot-open-since";
 const NOTIFY_KEY = "bluelot-notify";
@@ -65,6 +69,18 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
   const [filter, setFilter] = useState<Filter>("open");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [pageMotion, setPageMotion] = useState<"next" | "prev" | null>(null);
+  const [motionNonce, setMotionNonce] = useState(0);
+  const { shellRef, boardRef } = usePageSwipe({
+    pages: SWIPE_PAGES,
+    page: filter,
+    enabled: selected == null && query.trim() === "",
+    onPage: (next, direction) => {
+      setPageMotion(direction);
+      setMotionNonce((nonce) => nonce + 1);
+      setFilter(next);
+    },
+  });
   const [now, setNow] = useState<number | null>(null);
   const [pins, setPins] = useState<string[]>([]);
   const [pinsReady, setPinsReady] = useState(false);
@@ -217,7 +233,16 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
 
   const active = stalls.find((stall) => stall.name === selected) ?? null;
   const updated =
-    snapshot && now != null ? formatAgo(snapshot.fetchedAt, now) : snapshot ? formatUtc(snapshot.fetchedAt) : "";
+    snapshot && now != null
+      ? formatAgo(snapshot.fetchedAt, now)
+      : snapshot
+        ? formatUtc(snapshot.fetchedAt)
+        : "";
+
+  function selectFilter(next: Filter) {
+    setPageMotion(null);
+    setFilter(next);
+  }
 
   function togglePin(name: string) {
     setPins((current) =>
@@ -247,7 +272,10 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
   }
 
   return (
-    <div className="min-h-dvh bg-bg text-fg">
+    <div
+      ref={shellRef}
+      className="page-swipe min-h-dvh touch-pan-y overflow-x-clip overscroll-x-none bg-bg text-fg"
+    >
       <div className="mx-auto grid max-w-6xl gap-6 px-4 pt-5 pb-28 md:grid-cols-[17rem_1fr] md:px-8 md:pt-8 md:pb-10">
         <aside className="flex flex-col gap-5 md:sticky md:top-6 md:self-start">
           <header className="flex items-start justify-between gap-3">
@@ -273,7 +301,9 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                 className="inline-flex size-11 items-center justify-center rounded-full border border-line bg-transparent text-fg disabled:opacity-60"
                 aria-label="Refresh chargers"
               >
-                <RefreshCw className={pending ? "size-5 animate-spin motion-reduce:animate-none" : "size-5"} />
+                <RefreshCw
+                  className={pending ? "size-5 animate-spin motion-reduce:animate-none" : "size-5"}
+                />
               </button>
             </div>
           </header>
@@ -283,7 +313,7 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
               active={filter === "all"}
               label="All"
               count={counts.all}
-              onClick={() => setFilter("all")}
+              onClick={() => selectFilter("all")}
             />
             {FILTERS.map((item) => (
               <FilterButton
@@ -292,7 +322,7 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                 label={item.label}
                 count={item.id === "pinned" ? pins.length : counts[item.id]}
                 tone={item.id === "busy" ? "busy" : "open"}
-                onClick={() => setFilter(item.id)}
+                onClick={() => selectFilter(item.id)}
               />
             ))}
           </div>
@@ -302,16 +332,16 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
               {result.ok ? counts.open : "–"}
             </p>
             <p className="mt-2 text-sm text-muted">
-              {result.ok
-                ? (
-                  <>
-                    open of {counts.all} stalls ·{" "}
-                    <span className="text-busy">{counts.busy} in use</span>
-                    {" · "}
-                    {counts.offline} offline
-                  </>
-                )
-                : "waiting on the feed"}
+              {result.ok ? (
+                <>
+                  open of {counts.all} stalls ·{" "}
+                  <span className="text-busy">{counts.busy} in use</span>
+                  {" · "}
+                  {counts.offline} offline
+                </>
+              ) : (
+                "waiting on the feed"
+              )}
             </p>
             <p className="mt-3 text-xs text-muted">
               {snapshot?.live ? `Updated ${updated || "—"}` : `Saved reading · ${updated || "—"}`}
@@ -332,7 +362,10 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                 {[snapshot.address, snapshot.city].filter(Boolean).join(", ") || "Hawthorne"}
               </a>
             ) : null}
-            <label className="mt-4 flex items-center justify-between gap-3 text-sm">
+            <label
+              className="mt-4 flex items-center justify-between gap-3 text-sm"
+              data-swipe-ignore
+            >
               <span>Notify when a stall opens</span>
               <span className="relative inline-flex h-[26px] w-11 shrink-0">
                 <input
@@ -357,7 +390,10 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
             </label>
           </section>
 
-          <label className="flex items-center gap-2 rounded-2xl border border-line bg-surface px-3">
+          <label
+            className="flex items-center gap-2 rounded-2xl border border-line bg-surface px-3"
+            data-swipe-ignore
+          >
             <Search className="size-4 text-muted" />
             <input
               value={query}
@@ -370,73 +406,85 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
           </label>
         </aside>
 
-        <main>
-          {!result.ok ? (
-            <div className="rounded-3xl border border-line bg-surface p-6">
-              <h2 className="text-lg font-medium">Feed unavailable</h2>
-              <p className="mt-2 text-sm text-muted">{result.error}</p>
-              <button
-                type="button"
-                onClick={() => void refresh(true)}
-                className="mt-4 inline-flex h-11 items-center rounded-full bg-open px-4 text-sm font-medium text-open-ink"
-              >
-                Try again
-              </button>
-            </div>
-          ) : floors.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-line bg-surface p-6">
-              <h2 className="text-lg font-medium">
-                {filter === "open" ? "Nothing open right now" : "No stalls match"}
-              </h2>
-              <p className="mt-2 text-sm text-muted">
-                {filter === "pinned"
-                  ? "Star a stall to keep it here."
-                  : query
-                    ? `No stall numbered ${query}.`
-                    : "Try another filter, or check back after the next refresh."}
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-8">
-              {floors.map(([floor, group]) => (
-                <section key={floor} aria-labelledby={`floor-${floor}`}>
-                  <div className="mb-3 flex items-baseline justify-between gap-3">
-                    <h2 id={`floor-${floor}`} className="text-lg font-medium">
-                      {floor === 0 ? "Unassigned" : `Floor ${floor}`}
-                    </h2>
-                    <p className="text-sm text-muted">{group.length} shown</p>
-                  </div>
-                  <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                    {group.map((stall) => (
-                      <li key={stall.name}>
-                        <StallCard
-                          stall={stall}
-                          pinned={pinSet.has(stall.name)}
-                          openSeconds={
-                            now == null ? null : openForSeconds(openSince[stall.name], now)
-                          }
-                          onOpen={() => setSelected(stall.name)}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ))}
-            </div>
-          )}
+        <main className="min-w-0 overflow-x-clip">
+          <div
+            key={motionNonce}
+            ref={boardRef}
+            className={
+              pageMotion === "next"
+                ? "page-enter-next"
+                : pageMotion === "prev"
+                  ? "page-enter-prev"
+                  : undefined
+            }
+          >
+            {!result.ok ? (
+              <div className="rounded-3xl border border-line bg-surface p-6">
+                <h2 className="text-lg font-medium">Feed unavailable</h2>
+                <p className="mt-2 text-sm text-muted">{result.error}</p>
+                <button
+                  type="button"
+                  onClick={() => void refresh(true)}
+                  className="mt-4 inline-flex h-11 items-center rounded-full bg-open px-4 text-sm font-medium text-open-ink"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : floors.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-line bg-surface p-6">
+                <h2 className="text-lg font-medium">
+                  {filter === "open" ? "Nothing open right now" : "No stalls match"}
+                </h2>
+                <p className="mt-2 text-sm text-muted">
+                  {filter === "pinned"
+                    ? "Star a stall to keep it here."
+                    : query
+                      ? `No stall numbered ${query}.`
+                      : "Try another filter, or check back after the next refresh."}
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-8">
+                {floors.map(([floor, group]) => (
+                  <section key={floor} aria-labelledby={`floor-${floor}`}>
+                    <div className="mb-3 flex items-baseline justify-between gap-3">
+                      <h2 id={`floor-${floor}`} className="text-lg font-medium">
+                        {floor === 0 ? "Unassigned" : `Floor ${floor}`}
+                      </h2>
+                      <p className="text-sm text-muted">{group.length} shown</p>
+                    </div>
+                    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                      {group.map((stall) => (
+                        <li key={stall.name}>
+                          <StallCard
+                            stall={stall}
+                            pinned={pinSet.has(stall.name)}
+                            openSeconds={
+                              now == null ? null : openForSeconds(openSince[stall.name], now)
+                            }
+                            onOpen={() => setSelected(stall.name)}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )}
 
-          <p className="mt-8 text-xs text-muted">
-            Same live feed as the{" "}
-            <a
-              className="underline-offset-4 hover:underline"
-              href="https://spxchargers.streamlit.app/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Blue Lot dashboard
-            </a>
-            . Refreshes every 30 seconds. Free Level 2, up to 6.6 kW.
-          </p>
+            <p className="mt-8 text-xs text-muted">
+              Same live feed as the{" "}
+              <a
+                className="underline-offset-4 hover:underline"
+                href="https://spxchargers.streamlit.app/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Blue Lot dashboard
+              </a>
+              . Refreshes every 30 seconds. Free Level 2, up to 6.6 kW.
+            </p>
+          </div>
         </main>
       </div>
 
@@ -454,7 +502,7 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                 key={item.id}
                 type="button"
                 aria-pressed={active}
-                onClick={() => setFilter(item.id)}
+                onClick={() => selectFilter(item.id)}
                 className={
                   active
                     ? item.id === "busy"
@@ -587,17 +635,19 @@ function StatusPill({ availability }: { availability: Availability }) {
   const label = statusLabel(availability);
   if (availability === "open") {
     return (
-      <span className="rounded-full bg-open px-2 py-0.5 text-xs font-medium text-open-ink">{label}</span>
+      <span className="rounded-full bg-open px-2 py-0.5 text-xs font-medium text-open-ink">
+        {label}
+      </span>
     );
   }
   if (availability === "busy") {
     return (
-      <span className="rounded-full bg-busy px-2 py-0.5 text-xs font-medium text-busy-ink">{label}</span>
+      <span className="rounded-full bg-busy px-2 py-0.5 text-xs font-medium text-busy-ink">
+        {label}
+      </span>
     );
   }
-  return (
-    <span className="rounded-full bg-raised px-2 py-0.5 text-xs text-muted">{label}</span>
-  );
+  return <span className="rounded-full bg-raised px-2 py-0.5 text-xs text-muted">{label}</span>;
 }
 
 function StallSheet({
@@ -626,7 +676,10 @@ function StallSheet({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center md:items-center">
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center md:items-center"
+      data-swipe-ignore
+    >
       <button
         type="button"
         aria-label="Close stall details"
