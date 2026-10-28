@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -220,6 +221,16 @@ public class MainActivity extends Activity {
             }
             executor.execute(() -> StallAlerts.enable(MainActivity.this));
             return true;
+        }
+
+        @JavascriptInterface
+        public String appVersion() {
+            try {
+                PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+                return info.versionName == null ? "" : info.versionName;
+            } catch (PackageManager.NameNotFoundException ignored) {
+                return "";
+            }
         }
 
         @JavascriptInterface
