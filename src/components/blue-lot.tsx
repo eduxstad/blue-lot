@@ -331,16 +331,28 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                 {[snapshot.address, snapshot.city].filter(Boolean).join(", ") || "Hawthorne"}
               </a>
             ) : null}
-            <label className="mt-4 flex items-center gap-3 text-sm">
-              <input
-                type="checkbox"
-                className="size-5 accent-open"
-                checked={notify}
-                onChange={(event) => {
-                  void setNotifyEnabled(event.target.checked);
-                }}
-              />
-              Notify when a stall opens
+            <label className="mt-4 flex items-center justify-between gap-3 text-sm">
+              <span>Notify when a stall opens</span>
+              <span className="relative inline-flex h-[26px] w-11 shrink-0">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-checked={notify}
+                  className="peer absolute inset-0 z-10 m-0 cursor-pointer opacity-0"
+                  checked={notify}
+                  onChange={(event) => {
+                    void setNotifyEnabled(event.target.checked);
+                  }}
+                />
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 rounded-full bg-line transition-colors peer-checked:bg-open"
+                />
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-[3px] left-[3px] size-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-[18px]"
+                />
+              </span>
             </label>
           </section>
 

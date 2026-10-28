@@ -121,7 +121,7 @@ describe("story: opening the board", () => {
     expect(screen.getByRole("link", { name: "Feedback" }).getAttribute("href")).toBe(
       "mailto:bluelotfeedback@mail.grokbot.com?subject=Blue%20Lot%20feedback",
     );
-    expect(screen.getByRole("checkbox", { name: "Notify when a stall opens" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Notify when a stall opens" })).toBeTruthy();
   });
 
   it("says when the reading is a saved copy", () => {
