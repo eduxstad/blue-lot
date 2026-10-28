@@ -11,6 +11,10 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["src/lib/chargers.test.ts", "src/components/**/*.stories.test.tsx"],
+    include: [
+      "src/lib/chargers.test.ts",
+      "src/lib/app-version.test.ts",
+      "src/components/**/*.stories.test.tsx",
+    ],
   },
 });
