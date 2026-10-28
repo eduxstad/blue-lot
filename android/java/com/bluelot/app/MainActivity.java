@@ -8,6 +8,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
