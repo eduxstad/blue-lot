@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BlueLot } from "./blue-lot";
+import { appVersion } from "@/lib/app-version";
 import { LONG_SESSION_SECONDS, type ChargerResult, type Stall } from "@/lib/chargers";
 
 vi.mock("@tanstack/react-start", () => ({
@@ -122,6 +123,7 @@ describe("story: opening the board", () => {
       "mailto:bluelotfeedback@mail.grokbot.com?subject=Blue%20Lot%20feedback",
     );
     expect(screen.getByRole("switch", { name: "Notify when a stall opens" })).toBeTruthy();
+    expect(screen.getByText(`Version ${appVersion}`)).toBeTruthy();
   });
 
   it("says when the reading is a saved copy", () => {

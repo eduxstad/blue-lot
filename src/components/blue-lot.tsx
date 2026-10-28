@@ -11,6 +11,7 @@ import {
   Unplug,
   X,
 } from "lucide-react";
+import { appVersion } from "@/lib/app-version";
 import {
   formatAgo,
   formatDuration,
@@ -437,6 +438,7 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
             </a>
             . Refreshes every 30 seconds. Free Level 2, up to 6.6 kW.
           </p>
+          <p className="mt-2 text-xs text-muted">Version {appVersion}</p>
         </main>
       </div>
 

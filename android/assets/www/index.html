@@ -126,6 +126,7 @@
     }
     .fine { margin: 28px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
     .fine a { color: var(--muted); }
+    .version { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
     .dock {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
       border-top: 1px solid var(--line); background: rgba(12, 17, 16, 0.95);
@@ -195,6 +196,7 @@
     </label>
     <div id="list"></div>
     <p class="fine">Same live feed as the Blue Lot garage board. Refreshes every 30 seconds. Free Level 2, up to 6.6 kW.</p>
+    <p class="version" id="app-version" hidden></p>
   </div>
   <nav class="dock" id="dock" aria-label="Stall filters">
     <div class="dock-row" id="dock-row"></div>
@@ -224,6 +226,23 @@
     let seenAbsolute = false;
 
     const $ = (id) => document.getElementById(id);
+
+    function showAppVersion() {
+      const el = $("app-version");
+      if (!el) return;
+      let version = "";
+      try {
+        const native = window.BlueLotNative;
+        if (native && typeof native.appVersion === "function") {
+          const value = native.appVersion();
+          if (typeof value === "string") version = value.trim();
+        }
+      } catch (err) {
+        version = "";
+      }
+      el.hidden = !version;
+      el.textContent = version ? "Version " + version : "";
+    }
 
     function esc(value) {
       return String(value)
@@ -711,6 +730,7 @@
     $("q").addEventListener("focus", () => $("dock").classList.add("hidden"));
     $("q").addEventListener("blur", () => $("dock").classList.remove("hidden"));
 
+    showAppVersion();
     loadPins();
     const notifyBox = $("notify");
     window.onNotifyState = (on) => { if (notifyBox) notifyBox.checked = !!on; };
