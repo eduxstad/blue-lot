@@ -157,7 +157,8 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
       const stall = snapshot.stalls.find((item) => item.name === name);
       const where = stall ? (stall.floor === 0 ? "Unassigned" : `Floor ${stall.floor}`) : "";
       const bank = stall?.bank ? ` · Bank ${stall.bank}` : "";
-      new Notification(`Stall ${name} is open`, { body: `${where}${bank}` });
+      const note = new Notification(`Stall ${name} is open`, { body: `${where}${bank}` });
+      note.onclick = () => setSelected(name);
     }
   }, [snapshot, notify, ignored]);
   const stalls = snapshot?.stalls ?? [];

@@ -218,6 +218,7 @@
     let query = "";
     let pins = [];
     let selected = null;
+    let pendingStall = new URLSearchParams(location.search).get("stall");
     let pending = false;
     let now = Date.now();
     let seenAbsolute = false;
@@ -563,8 +564,27 @@
         '</article>';
     }
 
+    function claimPendingStall() {
+      if (!pendingStall || !state || !state.stalls) return;
+      if (!state.stalls.some((item) => item.name === pendingStall)) return;
+      selected = pendingStall;
+      pendingStall = null;
+      query = "";
+      seenAbsolute = false;
+      const field = $("q");
+      if (field) field.value = "";
+    }
+
+    window.openStall = function (name) {
+      if (typeof name !== "string" || !/^\d{1,6}$/.test(name)) return;
+      pendingStall = name;
+      claimPendingStall();
+      render();
+    };
+
     function render() {
       if (state && state.stalls) openSince = trackOpen(state.stalls);
+      claimPendingStall();
       const stalls = state ? state.stalls : [];
       const counts = countsOf(stalls);
       $("sub").textContent = state

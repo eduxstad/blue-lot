@@ -120,6 +120,12 @@ public final class StallAlerts {
         disable.setAction(ACTION_DISABLE);
         PendingIntent disablePi = PendingIntent.getBroadcast(context, 1, disable, flags);
 
+        Intent open = new Intent(context, MainActivity.class);
+        open.setAction(Intent.ACTION_VIEW);
+        open.putExtra("stall", stall.name);
+        open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent openPi = PendingIntent.getActivity(context, stall.name.hashCode(), open, flags);
+
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(context, CHANNEL)
                 : new Notification.Builder(context);
@@ -127,6 +133,7 @@ public final class StallAlerts {
                 .setContentTitle("Stall " + stall.name + " is open")
                 .setContentText(stall.place())
                 .setAutoCancel(true)
+                .setContentIntent(openPi)
                 .addAction(new Notification.Action(0, "Ignore Stall", ignorePi))
                 .addAction(new Notification.Action(0, "Disable Notifications", disablePi));
         manager.notify(stall.name.hashCode(), builder.build());

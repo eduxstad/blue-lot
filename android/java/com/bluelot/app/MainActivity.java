@@ -78,10 +78,40 @@ public class MainActivity extends Activity {
                 }
                 return true;
             }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                showStall(stallExtra());
+            }
         });
 
         setContentView(webView);
-        webView.loadUrl("file:///android_asset/www/index.html");
+        String stall = stallExtra();
+        webView.loadUrl("file:///android_asset/www/index.html" + (stall == null ? "" : "?stall=" + Uri.encode(stall)));
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        showStall(stallExtra());
+    }
+
+    private String stallExtra() {
+        Intent intent = getIntent();
+        if (intent == null) return null;
+        String stall = intent.getStringExtra("stall");
+        if (stall == null || !stall.matches("\\d{1,6}")) return null;
+        return stall;
+    }
+
+    private void showStall(String stall) {
+        if (stall == null || webView == null) return;
+        String arg = JSONObject.quote(stall);
+        webView.post(() -> {
+            if (webView == null) return;
+            webView.evaluateJavascript("window.openStall&&window.openStall(" + arg + ")", null);
+        });
     }
 
     @Override
