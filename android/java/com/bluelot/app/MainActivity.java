@@ -58,6 +58,15 @@ public class MainActivity extends Activity {
                 if (uri == null) return true;
                 String scheme = uri.getScheme();
                 if (scheme == null) return true;
+                if ("mailto".equals(scheme)) {
+                    Intent mail = new Intent(Intent.ACTION_SENDTO, uri);
+                    try {
+                        startActivity(mail);
+                    } catch (ActivityNotFoundException ignored) {
+                        /* no mail app */
+                    }
+                    return true;
+                }
                 if (!"https".equals(scheme) && !"http".equals(scheme)) return true;
                 Intent intent = new Intent(Intent.ACTION_VIEW, uri);
                 try {

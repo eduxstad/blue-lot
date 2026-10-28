@@ -118,6 +118,9 @@ describe("story: opening the board", () => {
     expect(within(header).queryByText(/Saved reading/)).toBeNull();
     expect(screen.getByRole("button", { name: /1054/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /1050/ })).toBeNull();
+    expect(screen.getByRole("link", { name: "Feedback" }).getAttribute("href")).toBe(
+      "mailto:bluelotfeedback@mail.grokbot.com?subject=Blue%20Lot%20feedback",
+    );
   });
 
   it("says when the reading is a saved copy", () => {

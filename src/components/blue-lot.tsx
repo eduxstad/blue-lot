@@ -184,15 +184,23 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                   : "Hawthorne garage"}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => void refresh(true)}
-              disabled={pending}
-              className="inline-flex size-11 items-center justify-center rounded-full border border-line bg-surface text-fg disabled:opacity-60"
-              aria-label="Refresh chargers"
-            >
-              <RefreshCw className={pending ? "size-5 animate-spin motion-reduce:animate-none" : "size-5"} />
-            </button>
+            <div className="flex items-center gap-2">
+              <a
+                href="mailto:bluelotfeedback@mail.grokbot.com?subject=Blue%20Lot%20feedback"
+                className="inline-flex h-11 items-center justify-center rounded-full border border-line bg-surface px-3 text-sm font-medium"
+              >
+                Feedback
+              </a>
+              <button
+                type="button"
+                onClick={() => void refresh(true)}
+                disabled={pending}
+                className="inline-flex size-11 items-center justify-center rounded-full border border-line bg-surface text-fg disabled:opacity-60"
+                aria-label="Refresh chargers"
+              >
+                <RefreshCw className={pending ? "size-5 animate-spin motion-reduce:animate-none" : "size-5"} />
+              </button>
+            </div>
           </header>
 
           <div className="hidden flex-wrap gap-2 md:flex">
