@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  connectionFailureMessage,
   formatAgo,
   formatDuration,
   formatLocal,
@@ -54,7 +55,11 @@ describe("trackOpenSince", () => {
 
   it("drops the clock when a stall is taken and starts over when it frees", () => {
     const started = now - 5 * 60 * 1000;
-    const taken = trackOpenSince([{ name: "1054", availability: "busy" }], { "1054": started }, now);
+    const taken = trackOpenSince(
+      [{ name: "1054", availability: "busy" }],
+      { "1054": started },
+      now,
+    );
     expect(taken["1054"]).toBeUndefined();
     const freed = trackOpenSince([{ name: "1054", availability: "open" }], taken, now + 1000);
     expect(freed["1054"]).toBe(now + 1000);
@@ -79,9 +84,9 @@ describe("newlyOpenStalls", () => {
 
   it("stays quiet on the first reading and for ignored stalls", () => {
     expect(newlyOpenStalls(null, [{ name: "1050", availability: "open" }], [])).toEqual([]);
-    expect(newlyOpenStalls({ "1050": "busy" }, [{ name: "1050", availability: "open" }], ["1050"])).toEqual(
-      [],
-    );
+    expect(
+      newlyOpenStalls({ "1050": "busy" }, [{ name: "1050", availability: "open" }], ["1050"]),
+    ).toEqual([]);
   });
 });
 
@@ -224,7 +229,12 @@ describe("loadChargers", () => {
     if (!result.ok) return;
     expect(result.snapshot.live).toBe(true);
     expect(result.snapshot.city).toBe("Hawthorne");
-    expect(result.snapshot.stalls.map((item) => item.name)).toEqual(["999", "1051", "1054", "2000"]);
+    expect(result.snapshot.stalls.map((item) => item.name)).toEqual([
+      "999",
+      "1051",
+      "1054",
+      "2000",
+    ]);
 
     const busy = result.snapshot.stalls.find((item) => item.name === "2000");
     expect(busy).toMatchObject({
@@ -248,26 +258,66 @@ describe("loadChargers", () => {
     expect(fallback).toMatchObject({ floor: 1, bank: "", availability: "open" });
   });
 
-  it("keeps the saved reading when the feed does not answer", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({ ok: false, json: async () => ({}) })),
-    );
+  it("reports a connection error and keeps a saved reading", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
     const denied = await loadChargers();
-    expect(denied.ok).toBe(true);
-    if (denied.ok) expect(denied.snapshot.live).toBe(false);
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.error).toBe(connectionFailureMessage("http"));
+      expect(denied.snapshot?.live).toBe(false);
+      expect(denied.snapshot?.stalls.length).toBeGreaterThan(0);
+    }
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
 
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
-        throw new Error("timeout");
+        throw Object.assign(new Error("The operation was aborted due to timeout"), {
+          name: "TimeoutError",
+        });
       }),
     );
-    const failed = await loadChargers();
-    expect(failed.ok).toBe(true);
-    if (failed.ok) {
-      expect(failed.snapshot.live).toBe(false);
-      expect(failed.snapshot.stalls.length).toBeGreaterThan(0);
+    const timedOut = await loadChargers();
+    expect(timedOut.ok).toBe(false);
+    if (!timedOut.ok) expect(timedOut.error).toBe(connectionFailureMessage("timeout"));
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    const dropped = await loadChargers();
+    expect(dropped.ok).toBe(false);
+    if (!dropped.ok) expect(dropped.error).toBe(connectionFailureMessage("network"));
+
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+    try {
+      const offline = await loadChargers();
+      expect(offline.ok).toBe(false);
+      if (!offline.ok) expect(offline.error).toBe(connectionFailureMessage("offline"));
+    } finally {
+      Reflect.deleteProperty(navigator, "onLine");
+    }
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => {
+          throw new SyntaxError("Unexpected token");
+        },
+      })),
+    );
+    const unreadable = await loadChargers();
+    expect(unreadable.ok).toBe(false);
+    if (!unreadable.ok) {
+      expect(unreadable.error).toBe(connectionFailureMessage("unreadable"));
+      expect(unreadable.snapshot?.live).toBe(false);
     }
   });
 });
