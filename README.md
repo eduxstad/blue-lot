@@ -9,7 +9,7 @@ Stalls are grouped by floor. Bank A and Bank B are the two rows on a floor, take
 - **Offline** stalls are dashed.
 - **Last seen** is relative. Tap it to show the absolute time in the phone's time zone.
 
-The list refreshes every 30 seconds. Filters are Open, In use, Offline, and Saved. On a phone, swipe sideways to move between those filters. Search is by stall number. Tap a stall for power, plug state, session or open time, and a directions link. Star a stall to keep it on Saved. Feedback opens an email to `bluelotfeedback@mail.grokbot.com`. The footer shows the app version, currently **1.11.0**.
+The list refreshes every 30 seconds. Filters are Open, In use, Offline, and Saved. On a phone, swipe sideways to move between those filters. Search is by stall number. Tap a stall for power, plug state, session or open time, and a directions link. Star a stall to keep it on Saved. Feedback opens an email to `bluelotfeedback@mail.grokbot.com`. The footer shows the app version, currently **1.12.0**.
 
 ## Alerts
 
@@ -35,9 +35,11 @@ The Android project is in [android/](android/). `android/build.sh` builds the AP
 
 ## Android Auto
 
-A custom charging screen cannot be sideloaded. Google only runs Android for Cars App Library apps that were installed from the Play Store, including a private internal-test track. The unknown-sources switch does not cover those apps.
+Android Auto runs Blue Lot as a charging app from the Android for Cars App Library. Google only runs that kind of app when it was installed from the Play Store. The internal testing track counts. The Play application id is `com.duxstad.bluelotchargers`. A sideloaded APK still opens the phone screen, and it does not show this car app. The unknown-sources switch does not cover it.
 
-This APK is a media app instead. With Android Auto's unknown-sources option on, Blue Lot shows up with the other audio apps and can stay on screen while driving. Each row is an open stall: the number, then the floor, bank, and how long it has been seen open. The car draws that list. Colors, cards, and custom buttons are not available. Tapping a row does nothing.
+The car screen reads the same charger feed as the phone. Each stall shows its number, floor, bank, and status. An open stall also shows how long this car app has seen it free. That clock is not in the feed: it starts the first time this app sees the stall open and resets when the stall is taken. Under a minute shows as `<1m`. An in-use stall shows the session length from the feed. Offline stalls are labeled offline. The action strip pages through the list and refreshes it. When the live feed does not answer, the title marks the list as a saved reading.
+
+Tap a stall for the floor and bank, the gateway row, plug state, power, and the open or in-use duration. Navigate sends the garage address from the feed to the car's navigation app. That is the same place the phone's directions link uses. Stalls do not have their own coordinates, so the template starts navigation to the garage.
 
 ## Layout
 
@@ -48,4 +50,4 @@ This APK is a media app instead. With Android Auto's unknown-sources option on, 
 | `src/lib/chargers.ts` | Feed parsing, durations, open-stall clock |
 | `src/lib/chargers.test.ts` | Unit tests |
 | `src/components/blue-lot.stories.test.tsx` | UI tests |
-| `android/` | WebView shell, notifications, and the Android Auto media service |
+| `android/` | WebView shell, notifications, and the Android Auto charging app |

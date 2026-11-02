@@ -382,7 +382,6 @@ javac --release 8 -encoding UTF-8 -classpath "$CP" -d "$OUT/classes" \
   "$ROOT/java/com/bluelot/app/MainActivity.java" \
   "$ROOT/java/com/bluelot/app/ChargerFeed.java" \
   "$ROOT/java/com/bluelot/app/ChargerCarService.java" \
-  "$ROOT/java/com/bluelot/app/ChargerMediaService.java" \
   "$ROOT/java/com/bluelot/app/StallAlerts.java" \
   "$ROOT/java/com/bluelot/app/NotifyReceiver.java" \
   "$OUT/gen/androidx/car/app/R.java" \
@@ -541,7 +540,25 @@ if code and found_code.group(1) != code:
     raise SystemExit(f"AAB versionCode is {found_code.group(1)}, expected {code}")
 if name and found_name.group(1) != name:
     raise SystemExit(f"AAB versionName is {found_name.group(1)}, expected {name}")
-print("aab", found_code.group(1), found_name.group(1))
+flat = re.sub(r"\s+", " ", text)
+for needle in (
+    "androidx.car.app.CarAppService",
+    "androidx.car.app.category.CHARGING",
+    "androidx.car.app.minCarApiLevel",
+    "ChargerCarService",
+):
+    if needle not in flat:
+        raise SystemExit(f"AAB manifest is missing {needle}")
+if "ChargerMediaService" in flat or "MediaBrowserService" in flat:
+    raise SystemExit("AAB manifest still registers the media workaround")
+if re.search(r'appCategory="audio"', flat):
+    raise SystemExit("AAB manifest still marks the app as an audio app")
+if not re.search(
+    r'minCarApiLevel" android:value="1"|android:value="1" android:name="androidx.car.app.minCarApiLevel"',
+    flat,
+):
+    raise SystemExit("AAB manifest minCarApiLevel is not 1")
+print("aab", found_code.group(1), found_name.group(1), "charging")
 PY
 
 badging=$("$BT/aapt" dump badging "$OUT/Blue-Lot.apk")
@@ -571,6 +588,22 @@ if [ -n "${VERSION_NAME:-}" ]; then
       ;;
   esac
 fi
+
+auto_xml=$("$BT/aapt" dump xmltree "$OUT/Blue-Lot.apk" res/xml/automotive_app_desc.xml)
+printf '%s\n' "$auto_xml"
+case "$auto_xml" in
+  *'="template"'*) ;;
+  *)
+    echo "automotive_app_desc does not declare the template car app" >&2
+    exit 1
+    ;;
+esac
+case "$auto_xml" in
+  *'="media"'*)
+    echo "automotive_app_desc still declares a media app" >&2
+    exit 1
+    ;;
+esac
 
 mkdir -p "$ARTIFACTS"
 cp "$OUT/Blue-Lot.apk" "$ARTIFACTS/Blue-Lot.apk"

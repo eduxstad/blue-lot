@@ -59,13 +59,47 @@ public final class ChargerFeed {
         }
     }
 
+    /** Garage address from the same payload the phone uses for directions. */
+    public static final class Site {
+        public static final Site UNKNOWN = new Site("", "", "", "");
+        public final String address;
+        public final String city;
+        public final String state;
+        public final String zip;
+
+        Site(String address, String city, String state, String zip) {
+            this.address = address == null ? "" : address.trim();
+            this.city = city == null ? "" : city.trim();
+            this.state = state == null ? "" : state.trim();
+            this.zip = zip == null ? "" : zip.trim();
+        }
+
+        public String directionsQuery() {
+            StringBuilder out = new StringBuilder();
+            append(out, address);
+            append(out, city);
+            append(out, state);
+            append(out, zip);
+            if (out.length() == 0) return "12250 Crenshaw Blvd, Hawthorne, CA";
+            return out.toString();
+        }
+
+        private static void append(StringBuilder out, String part) {
+            if (part == null || part.length() == 0) return;
+            if (out.length() > 0) out.append(", ");
+            out.append(part);
+        }
+    }
+
     public static final class Snapshot {
         public final boolean live;
         public final List<Stall> stalls;
+        public final Site site;
 
-        Snapshot(boolean live, List<Stall> stalls) {
+        Snapshot(boolean live, List<Stall> stalls, Site site) {
             this.live = live;
             this.stalls = stalls;
+            this.site = site == null ? Site.UNKNOWN : site;
         }
 
         public List<Stall> openStalls() {
@@ -82,16 +116,38 @@ public final class ChargerFeed {
     public static Snapshot load(String fallbackJson) {
         try {
             String body = download(SITE);
-            if (body != null) return new Snapshot(true, parse(body));
+            if (body != null) return new Snapshot(true, parse(body), parseSite(body));
         } catch (Exception ignored) {
             /* fall through to the saved reading */
         }
         try {
-            if (fallbackJson != null) return new Snapshot(false, parse(fallbackJson));
+            if (fallbackJson != null) return new Snapshot(false, parse(fallbackJson), parseSite(fallbackJson));
         } catch (Exception ignored) {
             /* empty board */
         }
-        return new Snapshot(false, new ArrayList<Stall>());
+        return new Snapshot(false, new ArrayList<Stall>(), Site.UNKNOWN);
+    }
+
+    /** Session length from the feed. Matches the phone under a minute and after. */
+    public static String formatDuration(long seconds) {
+        long total = Math.max(0, seconds);
+        if (total < 60) return total + "s";
+        return formatWatched(total);
+    }
+
+    static Site parseSite(String body) {
+        try {
+            JSONObject root = new JSONObject(body);
+            String zip = root.optString("zip", "");
+            if (zip.length() == 0) zip = root.optString("zipcode", "");
+            return new Site(
+                    root.optString("address", ""),
+                    root.optString("city", ""),
+                    root.optString("state", ""),
+                    zip);
+        } catch (Exception err) {
+            return Site.UNKNOWN;
+        }
     }
 
     /** Seconds this stall has been seen open. The feed does not report it. */
