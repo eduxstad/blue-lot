@@ -1,0 +1,56 @@
+name: Publish Blue Lot to Play Internal Testing
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version name override (optional)'
+        required: false
+        default: ''
+      release_notes:
+        description: 'Release notes'
+        required: false
+        default: 'Automated internal testing release'
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      # Note: The existing android/build.sh is environment-specific (hardcoded /tmp paths, generates its own keystore).
+      # For reliable CI we recommend adapting it or using a Gradle wrapper in the future.
+      # This step is a placeholder that you can replace with a CI-friendly build once adapted.
+      - name: Prepare and build APK (custom script)
+        run: |
+          # Install any extra deps the script needs (python3, etc. are usually present)
+          sudo apt-get update && sudo apt-get install -y python3-pil || true
+          # You will likely need to patch build.sh paths or provide a CI version
+          # For now, this is a starting point
+          echo "Build step needs adaptation for the custom android/build.sh"
+          # mkdir -p /tmp/android-sdk && ... (example)
+          # ./android/build.sh
+        continue-on-error: true
+
+      - name: Upload to Google Play Internal Testing
+        if: success()
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.bluelot.app
+          releaseFiles: android/build/Blue-Lot.apk   # adjust path once build is working
+          track: internal
+          status: draft   # use 'completed' once confirmed; draft for safety
+          # whatsNewDirectory: distribution/whatsnew
