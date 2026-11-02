@@ -30,27 +30,48 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;35.0.0'
 
-      # Note: The existing android/build.sh is environment-specific (hardcoded /tmp paths, generates its own keystore).
-      # For reliable CI we recommend adapting it or using a Gradle wrapper in the future.
-      # This step is a placeholder that you can replace with a CI-friendly build once adapted.
-      - name: Prepare and build APK (custom script)
+      - name: Install Pillow
         run: |
-          # Install any extra deps the script needs (python3, etc. are usually present)
-          sudo apt-get update && sudo apt-get install -y python3-pil || true
-          # You will likely need to patch build.sh paths or provide a CI version
-          # For now, this is a starting point
-          echo "Build step needs adaptation for the custom android/build.sh"
-          # mkdir -p /tmp/android-sdk && ... (example)
-          # ./android/build.sh
-        continue-on-error: true
+          sudo apt-get update
+          sudo apt-get install -y python3-pil
+
+      - name: Set Play version code
+        id: version
+        run: |
+          set -euo pipefail
+          base=$(sed -n 's/.*android:versionCode="\([0-9][0-9]*\)".*/\1/p' android/AndroidManifest.xml)
+          if [ -z "$base" ]; then
+            echo "Could not read android:versionCode from android/AndroidManifest.xml" >&2
+            exit 1
+          fi
+          code=$((base + GITHUB_RUN_NUMBER))
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "versionCode=$code (manifest $base + run $GITHUB_RUN_NUMBER)"
+
+      # build.sh fetches pinned AndroidX/Guava jars and bundletool 1.18.3
+      # into android/.deps when they are not already there.
+      - name: Build signed APK and AAB
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: bash android/build.sh
+
+      - name: Upload Android App Bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blue-Lot-aab
+          path: artifacts/Blue-Lot.aab
+          if-no-files-found: error
 
       - name: Upload to Google Play Internal Testing
-        if: success()
         uses: r0adkll/upload-google-play@v1
         with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVER_ACCOUNT_JSON }}
           packageName: com.bluelot.app
-          releaseFiles: android/build/Blue-Lot.apk   # adjust path once build is working
+          releaseFiles: artifacts/Blue-Lot.aab
           track: internal
-          status: draft   # use 'completed' once confirmed; draft for safety
-          # whatsNewDirectory: distribution/whatsnew
+          status: draft

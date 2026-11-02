@@ -7,4 +7,5 @@ attachments/
 dist/
 *.keystore
 android/build/
+android/.deps/
 AGENTS.md
