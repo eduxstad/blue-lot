@@ -1,32 +1,271 @@
 #!/bin/bash
+# Build the Blue Lot APK and Play App Bundle without Gradle.
+#
+# Defaults match a checkout of this repo plus a normal Android SDK
+# (ANDROID_SDK_ROOT or ANDROID_HOME, build-tools/35.0.0, platforms/android-35).
+# The old single-machine layout still works when those directories exist:
+#   ANDROID_SDK_ROOT=/tmp/android-sdk          (android-14/ and android-35/)
+#   BLUELOT_CAR_LIBS=/tmp/car-libs             (classes.jar and cp/*.jar)
+#   BLUELOT_FALLBACK_SNAPSHOT=/path/to/fallback-snapshot.json
+#   BLUELOT_ARTIFACTS=/workspace/artifacts
+#
+# Dependency jars and bundletool are downloaded into android/.car-libs and
+# android/.bundletool when they are not already there.
+#
+# CI (GITHUB_ACTIONS=true) must set KEYSTORE_BASE64, KEYSTORE_PASSWORD,
+# KEY_ALIAS, and KEY_PASSWORD. A missing secret fails the build. Local runs
+# reuse android/bluelot.keystore, or create one, with alias bluelot.
+#
+# Optional overrides: VERSION_CODE, VERSION_NAME, ANDROID_BUILD_TOOLS,
+# ANDROID_JAR, BUNDLETOOL_JAR, BLUELOT_ANDROID_ROOT, BLUELOT_REPO_ROOT.
 set -euo pipefail
 
-ROOT=/tmp/bluelot-android
-SDK=/tmp/android-sdk
-BT="$SDK/android-14"
-JAR="$SDK/android-35/android.jar"
-OUT="$ROOT/build"
-rm -rf "$OUT"
-mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/assets/www" "$OUT/res"
+BUNDLETOOL_VERSION=1.18.3
+GMAVEN=https://dl.google.com/dl/android/maven2
+CENTRAL=https://repo1.maven.org/maven2
 
+ensure_jar() {
+  local dest="$1"
+  local url="$2"
+  if [ -s "$dest" ]; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest")"
+  echo "fetch $(basename "$dest")"
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 20 -o "$dest.partial" "$url"
+  python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).namelist()' "$dest.partial"
+  mv "$dest.partial" "$dest"
+}
+
+ensure_aar_classes() {
+  local dest="$1"
+  local url="$2"
+  local tmp
+  if [ -s "$dest" ]; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest")"
+  echo "fetch $(basename "$dest")"
+  tmp=$(mktemp)
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 20 -o "$tmp" "$url"
+  python3 -c 'import sys, zipfile; from pathlib import Path; src, dest = sys.argv[1:]; z = zipfile.ZipFile(src); Path(dest).write_bytes(z.read("classes.jar"))' \
+    "$tmp" "$dest.partial"
+  rm -f "$tmp"
+  mv "$dest.partial" "$dest"
+}
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(cd "${BLUELOT_ANDROID_ROOT:-$SCRIPT_DIR}" && pwd)
+REPO_ROOT=$(cd "${BLUELOT_REPO_ROOT:-$SCRIPT_DIR/..}" && pwd)
+FALLBACK=${BLUELOT_FALLBACK_SNAPSHOT:-$REPO_ROOT/src/lib/fallback-snapshot.json}
+ARTIFACTS=${BLUELOT_ARTIFACTS:-$REPO_ROOT/artifacts}
+LIBS=${BLUELOT_CAR_LIBS:-$ROOT/.car-libs}
+OUT=$ROOT/build
+
+for cmd in java javac keytool jarsigner python3 curl base64; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "required command not found: $cmd" >&2
+    exit 1
+  fi
+done
+
+if [ ! -f "$FALLBACK" ]; then
+  echo "fallback snapshot not found: $FALLBACK" >&2
+  exit 1
+fi
+
+use_secret_keystore=false
+if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ -n "${KEYSTORE_BASE64:-}${KEYSTORE_PASSWORD:-}${KEY_ALIAS:-}${KEY_PASSWORD:-}" ]; then
+  missing=()
+  [ -n "${KEYSTORE_BASE64:-}" ] || missing+=("KEYSTORE_BASE64")
+  [ -n "${KEYSTORE_PASSWORD:-}" ] || missing+=("KEYSTORE_PASSWORD")
+  [ -n "${KEY_ALIAS:-}" ] || missing+=("KEY_ALIAS")
+  [ -n "${KEY_PASSWORD:-}" ] || missing+=("KEY_PASSWORD")
+  if [ "${#missing[@]}" -gt 0 ]; then
+    echo "Refusing to generate a keystore." >&2
+    echo "Missing signing secret(s): ${missing[*]}" >&2
+    echo "Set GitHub Actions secrets KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, and KEY_PASSWORD." >&2
+    echo "Play rejects a release when the upload key changes between runs." >&2
+    exit 1
+  fi
+  use_secret_keystore=true
+fi
+
+if [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+  SDK=$ANDROID_SDK_ROOT
+elif [ -n "${ANDROID_HOME:-}" ]; then
+  SDK=$ANDROID_HOME
+elif [ -d /tmp/android-sdk ]; then
+  SDK=/tmp/android-sdk
+else
+  echo "Android SDK not found. Set ANDROID_SDK_ROOT or ANDROID_HOME." >&2
+  echo "Install platforms;android-35 and build-tools;35.0.0." >&2
+  exit 1
+fi
+
+if [ -n "${ANDROID_BUILD_TOOLS:-}" ]; then
+  BT=$ANDROID_BUILD_TOOLS
+elif [ -x "$SDK/build-tools/35.0.0/aapt2" ]; then
+  BT=$SDK/build-tools/35.0.0
+elif [ -x "$SDK/android-14/aapt2" ]; then
+  BT=$SDK/android-14
+else
+  echo "aapt2 not found. Install build-tools 35.0.0 under $SDK or set ANDROID_BUILD_TOOLS." >&2
+  exit 1
+fi
+
+if [ -n "${ANDROID_JAR:-}" ]; then
+  JAR=$ANDROID_JAR
+elif [ -f "$SDK/platforms/android-35/android.jar" ]; then
+  JAR=$SDK/platforms/android-35/android.jar
+elif [ -f "$SDK/android-35/android.jar" ]; then
+  JAR=$SDK/android-35/android.jar
+else
+  echo "android.jar not found. Install platforms;android-35 under $SDK or set ANDROID_JAR." >&2
+  exit 1
+fi
+
+for tool in aapt aapt2 d8 zipalign apksigner; do
+  if [ ! -x "$BT/$tool" ] && [ ! -f "$BT/$tool" ]; then
+    echo "missing build-tools command: $BT/$tool" >&2
+    exit 1
+  fi
+done
+
+ensure_aar_classes "$LIBS/classes.jar" "$GMAVEN/androidx/car/app/app/1.4.0/app-1.4.0.aar"
+ensure_aar_classes "$LIBS/cp/core-1.7.0.jar" "$GMAVEN/androidx/core/core/1.7.0/core-1.7.0.aar"
+ensure_aar_classes "$LIBS/cp/lifecycle-runtime-2.3.1.jar" "$GMAVEN/androidx/lifecycle/lifecycle-runtime/2.3.1/lifecycle-runtime-2.3.1.aar"
+ensure_jar "$LIBS/cp/lifecycle-common-2.3.1.jar" "$GMAVEN/androidx/lifecycle/lifecycle-common/2.3.1/lifecycle-common-2.3.1.jar"
+ensure_jar "$LIBS/cp/lifecycle-common-java8-2.2.0.jar" "$GMAVEN/androidx/lifecycle/lifecycle-common-java8/2.2.0/lifecycle-common-java8-2.2.0.jar"
+ensure_aar_classes "$LIBS/cp/lifecycle-viewmodel-2.3.0.jar" "$GMAVEN/androidx/lifecycle/lifecycle-viewmodel/2.3.0/lifecycle-viewmodel-2.3.0.aar"
+ensure_aar_classes "$LIBS/cp/savedstate-1.1.0.jar" "$GMAVEN/androidx/savedstate/savedstate/1.1.0/savedstate-1.1.0.aar"
+ensure_aar_classes "$LIBS/cp/activity-1.2.0.jar" "$GMAVEN/androidx/activity/activity/1.2.0/activity-1.2.0.aar"
+ensure_jar "$LIBS/cp/annotation-1.2.0.jar" "$GMAVEN/androidx/annotation/annotation/1.2.0/annotation-1.2.0.jar"
+ensure_jar "$LIBS/cp/collection-1.0.0.jar" "$GMAVEN/androidx/collection/collection/1.0.0/collection-1.0.0.jar"
+ensure_aar_classes "$LIBS/cp/versionedparcelable-1.1.1.jar" "$GMAVEN/androidx/versionedparcelable/versionedparcelable/1.1.1/versionedparcelable-1.1.1.aar"
+ensure_aar_classes "$LIBS/cp/core-runtime-2.1.0.jar" "$GMAVEN/androidx/arch/core/core-runtime/2.1.0/core-runtime-2.1.0.aar"
+ensure_jar "$LIBS/cp/core-common-2.1.0.jar" "$GMAVEN/androidx/arch/core/core-common/2.1.0/core-common-2.1.0.jar"
+ensure_jar "$LIBS/cp/concurrent-futures-1.0.0.jar" "$GMAVEN/androidx/concurrent/concurrent-futures/1.0.0/concurrent-futures-1.0.0.jar"
+ensure_jar "$LIBS/cp/guava-31.1-android.jar" "$CENTRAL/com/google/guava/guava/31.1-android/guava-31.1-android.jar"
+ensure_jar "$LIBS/cp/failureaccess-1.0.1.jar" "$CENTRAL/com/google/guava/failureaccess/1.0.1/failureaccess-1.0.1.jar"
+
+if ! python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); sys.exit(0 if "androidx/car/app/CarAppService.class" in z.namelist() else 1)' "$LIBS/classes.jar"; then
+  echo "car library jar is missing androidx.car.app.CarAppService: $LIBS/classes.jar" >&2
+  exit 1
+fi
+
+if [ -n "${BUNDLETOOL_JAR:-}" ]; then
+  if [ ! -s "$BUNDLETOOL_JAR" ]; then
+    echo "BUNDLETOOL_JAR not found: $BUNDLETOOL_JAR" >&2
+    exit 1
+  fi
+else
+  BUNDLETOOL_JAR=$ROOT/.bundletool/bundletool-all-$BUNDLETOOL_VERSION.jar
+  if [ ! -s "$BUNDLETOOL_JAR" ]; then
+    mkdir -p "$(dirname "$BUNDLETOOL_JAR")"
+    echo "fetch bundletool $BUNDLETOOL_VERSION"
+    curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 20 -o "$BUNDLETOOL_JAR.partial" \
+      "https://github.com/google/bundletool/releases/download/${BUNDLETOOL_VERSION}/bundletool-all-${BUNDLETOOL_VERSION}.jar"
+    mv "$BUNDLETOOL_JAR.partial" "$BUNDLETOOL_JAR"
+  fi
+fi
+
+case "$OUT" in
+  /*/build) ;;
+  *)
+    echo "refusing to remove unexpected build directory: $OUT" >&2
+    exit 1
+    ;;
+esac
+rm -rf "$OUT"
+mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/assets/www" "$OUT/res" "$OUT/gen"
+cp -a "$ROOT/res/." "$OUT/res/"
+
+if [ "$use_secret_keystore" = true ]; then
+  KS=$OUT/upload.keystore
+  if ! printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KS.partial"; then
+    echo "KEYSTORE_BASE64 is not valid base64." >&2
+    exit 1
+  fi
+  mv "$KS.partial" "$KS"
+  chmod 600 "$KS"
+  if [ ! -s "$KS" ]; then
+    echo "KEYSTORE_BASE64 decoded to an empty file." >&2
+    exit 1
+  fi
+  if ! keytool -list -keystore "$KS" -alias "$KEY_ALIAS" -storepass:env KEYSTORE_PASSWORD >/dev/null; then
+    echo "Could not read alias '$KEY_ALIAS' from the keystore. Check KEYSTORE_BASE64, KEYSTORE_PASSWORD, and KEY_ALIAS." >&2
+    exit 1
+  fi
+else
+  KS=$ROOT/bluelot.keystore
+  export KEY_ALIAS=bluelot
+  export KEYSTORE_PASSWORD=bluelot-install
+  export KEY_PASSWORD=bluelot-install
+  if [ ! -f "$KS" ]; then
+    keytool -genkeypair -keystore "$KS" -alias "$KEY_ALIAS" \
+      -keyalg RSA -keysize 2048 -validity 10000 \
+      -storepass:env KEYSTORE_PASSWORD \
+      -keypass:env KEY_PASSWORD \
+      -dname "CN=Blue Lot, OU=Blue Lot, O=Blue Lot, L=Hawthorne, ST=CA, C=US"
+  fi
+fi
+
+MANIFEST=$ROOT/AndroidManifest.xml
+if [ -n "${VERSION_CODE:-}" ] || [ -n "${VERSION_NAME:-}" ]; then
+  MANIFEST=$OUT/AndroidManifest.xml
+  cp "$ROOT/AndroidManifest.xml" "$MANIFEST"
+  python3 - "$MANIFEST" "${VERSION_CODE:-}" "${VERSION_NAME:-}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path, code, name = sys.argv[1:]
+text = Path(path).read_text(encoding="utf-8")
+if code:
+    if not code.isdigit() or not 1 <= int(code) <= 2100000000:
+        raise SystemExit(f"invalid VERSION_CODE: {code}")
+    text, n = re.subn(r'android:versionCode="\d+"', f'android:versionCode="{code}"', text, count=1)
+    if n != 1:
+        raise SystemExit("android:versionCode not found in manifest")
+if name:
+    if not re.fullmatch(r"[0-9A-Za-z.+_-]+", name):
+        raise SystemExit(f"invalid VERSION_NAME: {name}")
+    text, n = re.subn(r'android:versionName="[^"]*"', f'android:versionName="{name}"', text, count=1)
+    if n != 1:
+        raise SystemExit("android:versionName not found in manifest")
+Path(path).write_text(text, encoding="utf-8")
+print("version", code or "(manifest)", name or "(manifest)")
+PY
+fi
+
+export ROOT OUT FALLBACK
+export RES_DIR=$OUT/res
 python3 - <<'PY'
 import json
+import os
 from pathlib import Path
-from PIL import Image, ImageDraw
 
-root = Path("/tmp/bluelot-android")
-src = (root / "assets/www/index.html").read_text()
-data = json.loads(Path("/workspace/src/lib/fallback-snapshot.json").read_text())
+try:
+    from PIL import Image, ImageDraw
+except ImportError as err:
+    raise SystemExit("Pillow is required. Install python3-pil or pip install pillow.") from err
+
+root = Path(os.environ["ROOT"])
+out = Path(os.environ["OUT"])
+res = Path(os.environ["RES_DIR"])
+fallback_path = Path(os.environ["FALLBACK"])
+src = (root / "assets/www/index.html").read_text(encoding="utf-8")
+data = json.loads(fallback_path.read_text(encoding="utf-8"))
 blob = json.dumps(data, separators=(",", ":")).replace("<", "\\u003c")
 html = src.replace("__FALLBACK_JSON__", blob)
 if "__FALLBACK_JSON__" in html:
     raise SystemExit("fallback placeholder was not replaced")
-out = root / "build/assets/www/index.html"
-out.parent.mkdir(parents=True, exist_ok=True)
-out.write_text(html)
-print("html bytes", out.stat().st_size)
-fallback = Path("/workspace/src/lib/fallback-snapshot.json").read_bytes()
-(root / "build/assets/fallback-snapshot.json").write_bytes(fallback)
+html_out = out / "assets/www/index.html"
+html_out.parent.mkdir(parents=True, exist_ok=True)
+html_out.write_text(html, encoding="utf-8")
+print("html bytes", html_out.stat().st_size)
+(out / "assets/fallback-snapshot.json").write_bytes(fallback_path.read_bytes())
 
 def icon(size: int) -> Image.Image:
     img = Image.new("RGBA", (size, size), (61, 220, 132, 255))
@@ -52,34 +291,31 @@ for name, size in {
     "mipmap-xxhdpi": 144,
     "mipmap-xxxhdpi": 192,
 }.items():
-    folder = root / "res" / name
+    folder = res / name
     folder.mkdir(parents=True, exist_ok=True)
     icon(size).save(folder / "ic_launcher.png")
 print("icons ok")
 PY
 
-"$BT/aapt2" compile -o "$OUT/compiled.zip" --dir "$ROOT/res"
+"$BT/aapt2" compile -o "$OUT/compiled.zip" --dir "$OUT/res"
 "$BT/aapt2" link \
   -o "$OUT/linked.apk" \
   -I "$JAR" \
-  --manifest "$ROOT/AndroidManifest.xml" \
+  --manifest "$MANIFEST" \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
   --java "$OUT/gen" \
   -A "$OUT/assets" \
   "$OUT/compiled.zip"
 
-python3 - <<'PY'
-import re
-from pathlib import Path
-text = Path("/tmp/android-sdk/android-14/aapt2").exists()
-PY
-# Resource ids for the car library live in this app's table. Write the R class it looks up.
 "$BT/aapt2" dump resources "$OUT/linked.apk" > "$OUT/resources.txt"
+export OUT
 python3 - <<'PY'
+import os
 import re
 from pathlib import Path
-dump = Path("/tmp/bluelot-android/build/resources.txt").read_text(errors="replace")
+
+dump = Path(os.environ["OUT"], "resources.txt").read_text(encoding="utf-8", errors="replace")
 wanted = {
     "string": ["car_app_library_version"],
     "integer": [
@@ -94,13 +330,13 @@ wanted = {
 found = {kind: {} for kind in wanted}
 for kind, names in wanted.items():
     for name in names:
-        match = re.search(rf"resource (0x[0-9a-fA-F]+) {kind}/{name}\b", dump)
+        match = re.search(rf"resource (0x[0-9a-fA-F]+) (?:\S+:)?{kind}/{name}\b", dump)
         if not match:
             match = re.search(rf"(0x[0-9a-fA-F]+).*{kind}/{name}\b", dump)
         if not match:
             raise SystemExit(f"missing resource id for {kind}/{name}")
         found[kind][name] = match.group(1)
-out = Path("/tmp/bluelot-android/build/gen/androidx/car/app")
+out = Path(os.environ["OUT"], "gen/androidx/car/app")
 out.mkdir(parents=True, exist_ok=True)
 parts = ["package androidx.car.app;", "public final class R {"]
 for kind, names in wanted.items():
@@ -109,30 +345,33 @@ for kind, names in wanted.items():
         parts.append(f"    public static final int {name} = {found[kind][name]};")
     parts.append("  }")
 parts.append("}")
-(out / "R.java").write_text("\n".join(parts) + "\n")
+(out / "R.java").write_text("\n".join(parts) + "\n", encoding="utf-8")
 print("car R", found["integer"]["content_limit_list"])
 PY
 
-CP="$JAR:/tmp/car-libs/classes.jar"
-for j in \
-  /tmp/car-libs/cp/core-1.7.0.jar \
-  /tmp/car-libs/cp/lifecycle-runtime-2.3.1.jar \
-  /tmp/car-libs/cp/lifecycle-common-2.3.1.jar \
-  /tmp/car-libs/cp/lifecycle-common-java8-2.2.0.jar \
-  /tmp/car-libs/cp/lifecycle-viewmodel-2.3.0.jar \
-  /tmp/car-libs/cp/savedstate-1.1.0.jar \
-  /tmp/car-libs/cp/activity-1.2.0.jar \
-  /tmp/car-libs/cp/annotation-1.2.0.jar \
-  /tmp/car-libs/cp/collection-1.0.0.jar \
-  /tmp/car-libs/cp/versionedparcelable-1.1.1.jar \
-  /tmp/car-libs/cp/core-runtime-2.1.0.jar \
-  /tmp/car-libs/cp/core-common-2.1.0.jar \
-  /tmp/car-libs/cp/concurrent-futures-1.0.0.jar \
-  /tmp/car-libs/cp/guava-31.1-android.jar \
-  /tmp/car-libs/cp/failureaccess-1.0.1.jar
- do
-  CP="$CP:$j"
-done
+CP_JARS=(
+  "$JAR"
+  "$LIBS/classes.jar"
+  "$LIBS/cp/core-1.7.0.jar"
+  "$LIBS/cp/lifecycle-runtime-2.3.1.jar"
+  "$LIBS/cp/lifecycle-common-2.3.1.jar"
+  "$LIBS/cp/lifecycle-common-java8-2.2.0.jar"
+  "$LIBS/cp/lifecycle-viewmodel-2.3.0.jar"
+  "$LIBS/cp/savedstate-1.1.0.jar"
+  "$LIBS/cp/activity-1.2.0.jar"
+  "$LIBS/cp/annotation-1.2.0.jar"
+  "$LIBS/cp/collection-1.0.0.jar"
+  "$LIBS/cp/versionedparcelable-1.1.1.jar"
+  "$LIBS/cp/core-runtime-2.1.0.jar"
+  "$LIBS/cp/core-common-2.1.0.jar"
+  "$LIBS/cp/concurrent-futures-1.0.0.jar"
+  "$LIBS/cp/guava-31.1-android.jar"
+  "$LIBS/cp/failureaccess-1.0.1.jar"
+)
+CP=$(
+  IFS=:
+  printf '%s' "${CP_JARS[*]}"
+)
 
 javac --release 8 -encoding UTF-8 -classpath "$CP" -d "$OUT/classes" \
   "$ROOT/java/com/bluelot/app/MainActivity.java" \
@@ -145,35 +384,35 @@ javac --release 8 -encoding UTF-8 -classpath "$CP" -d "$OUT/classes" \
   "$OUT/gen/com/bluelot/app/R.java"
 
 find "$OUT/classes" -name '*.class' > "$OUT/classes.list"
-DEX_IN="$OUT/classes.list"
-# Library jars the car service needs at runtime. One version of each.
-cat > "$OUT/dex-jars.list" <<'JARS'
-/tmp/car-libs/classes.jar
-/tmp/car-libs/cp/core-1.7.0.jar
-/tmp/car-libs/cp/lifecycle-runtime-2.3.1.jar
-/tmp/car-libs/cp/lifecycle-common-2.3.1.jar
-/tmp/car-libs/cp/lifecycle-common-java8-2.2.0.jar
-/tmp/car-libs/cp/lifecycle-viewmodel-2.3.0.jar
-/tmp/car-libs/cp/savedstate-1.1.0.jar
-/tmp/car-libs/cp/activity-1.2.0.jar
-/tmp/car-libs/cp/collection-1.0.0.jar
-/tmp/car-libs/cp/versionedparcelable-1.1.1.jar
-/tmp/car-libs/cp/core-runtime-2.1.0.jar
-/tmp/car-libs/cp/core-common-2.1.0.jar
-/tmp/car-libs/cp/concurrent-futures-1.0.0.jar
-/tmp/car-libs/cp/guava-31.1-android.jar
-/tmp/car-libs/cp/failureaccess-1.0.1.jar
-JARS
+DEX_JARS=(
+  "$LIBS/classes.jar"
+  "$LIBS/cp/core-1.7.0.jar"
+  "$LIBS/cp/lifecycle-runtime-2.3.1.jar"
+  "$LIBS/cp/lifecycle-common-2.3.1.jar"
+  "$LIBS/cp/lifecycle-common-java8-2.2.0.jar"
+  "$LIBS/cp/lifecycle-viewmodel-2.3.0.jar"
+  "$LIBS/cp/savedstate-1.1.0.jar"
+  "$LIBS/cp/activity-1.2.0.jar"
+  "$LIBS/cp/collection-1.0.0.jar"
+  "$LIBS/cp/versionedparcelable-1.1.1.jar"
+  "$LIBS/cp/core-runtime-2.1.0.jar"
+  "$LIBS/cp/core-common-2.1.0.jar"
+  "$LIBS/cp/concurrent-futures-1.0.0.jar"
+  "$LIBS/cp/guava-31.1-android.jar"
+  "$LIBS/cp/failureaccess-1.0.1.jar"
+)
+printf '%s\n' "${DEX_JARS[@]}" > "$OUT/dex-jars.list"
 "$BT/d8" --release --min-api 24 --lib "$JAR" --output "$OUT/dex" \
   @"$OUT/classes.list" @"$OUT/dex-jars.list"
 
-cp "$OUT/linked.apk" "$OUT/unsigned.apk"
+export OUT
 python3 - <<'PY'
+import os
 import zipfile
 from pathlib import Path
-out = Path("/tmp/bluelot-android/build")
+
+out = Path(os.environ["OUT"])
 unsigned = out / "unsigned.apk"
-# Rewrite so classes.dex is a clean stored entry and the archive has no stray metadata.
 src = out / "linked.apk"
 with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(unsigned, "w") as zout:
     for info in zin.infolist():
@@ -194,29 +433,141 @@ with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(unsigned, "w") as zout:
 print("unsigned", unsigned.stat().st_size)
 PY
 
-if [ ! -f "$ROOT/bluelot.keystore" ]; then
-  keytool -genkeypair -keystore "$ROOT/bluelot.keystore" -alias bluelot \
-    -keyalg RSA -keysize 2048 -validity 10000 \
-    -storepass bluelot-install -keypass bluelot-install \
-    -dname "CN=Blue Lot, OU=Blue Lot, O=Blue Lot, L=Hawthorne, ST=CA, C=US"
-fi
+"$BT/aapt2" link \
+  --proto-format \
+  -o "$OUT/base-proto.zip" \
+  -I "$JAR" \
+  --manifest "$MANIFEST" \
+  --min-sdk-version 24 \
+  --target-sdk-version 34 \
+  -A "$OUT/assets" \
+  "$OUT/compiled.zip"
+
+export OUT
+python3 - <<'PY'
+import os
+import zipfile
+from pathlib import Path
+
+out = Path(os.environ["OUT"])
+proto = out / "base-proto.zip"
+module = out / "base.zip"
+dex_files = sorted((out / "dex").glob("classes*.dex"))
+if not dex_files:
+    raise SystemExit("no dex output")
+with zipfile.ZipFile(proto) as zin, zipfile.ZipFile(module, "w") as zout:
+    names = zin.namelist()
+    if "AndroidManifest.xml" not in names or "resources.pb" not in names:
+        raise SystemExit("proto link output is missing AndroidManifest.xml or resources.pb: " + ", ".join(names[:20]))
+
+    def put(arc: str, data: bytes) -> None:
+        info = zipfile.ZipInfo(filename=arc)
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = 0
+        zout.writestr(info, data)
+
+    put("manifest/AndroidManifest.xml", zin.read("AndroidManifest.xml"))
+    put("resources.pb", zin.read("resources.pb"))
+    for name in names:
+        if name.endswith("/"):
+            continue
+        if name.startswith("res/") or name.startswith("assets/"):
+            put(name, zin.read(name))
+    for dex_path in dex_files:
+        put(f"dex/{dex_path.name}", dex_path.read_bytes())
+print("module entries", len(zipfile.ZipFile(module).namelist()))
+PY
+
+java -jar "$BUNDLETOOL_JAR" build-bundle \
+  --modules="$OUT/base.zip" \
+  --output="$OUT/Blue-Lot.unsigned.aab"
 
 "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 "$BT/apksigner" sign \
-  --ks "$ROOT/bluelot.keystore" \
-  --ks-key-alias bluelot \
-  --ks-pass pass:bluelot-install \
-  --key-pass pass:bluelot-install \
+  --ks "$KS" \
+  --ks-key-alias "$KEY_ALIAS" \
+  --ks-pass env:KEYSTORE_PASSWORD \
+  --key-pass env:KEY_PASSWORD \
   --v1-signing-enabled true \
   --v2-signing-enabled true \
   --v3-signing-enabled true \
   --v4-signing-enabled false \
   --out "$OUT/Blue-Lot.apk" \
   "$OUT/aligned.apk"
+"$BT/apksigner" verify "$OUT/Blue-Lot.apk"
 
-"$BT/apksigner" verify --verbose "$OUT/Blue-Lot.apk"
-"$BT/aapt" dump badging "$OUT/Blue-Lot.apk" | head -30
-mkdir -p /workspace/artifacts
-cp "$OUT/Blue-Lot.apk" /workspace/artifacts/Blue-Lot.apk
-ls -lh /workspace/artifacts/Blue-Lot.apk
+jarsigner \
+  -sigalg SHA256withRSA \
+  -digestalg SHA-256 \
+  -keystore "$KS" \
+  -storepass:env KEYSTORE_PASSWORD \
+  -keypass:env KEY_PASSWORD \
+  -signedjar "$OUT/Blue-Lot.aab" \
+  "$OUT/Blue-Lot.unsigned.aab" \
+  "$KEY_ALIAS"
+verify_out=$(jarsigner -verify "$OUT/Blue-Lot.aab" 2>&1)
+printf '%s\n' "$verify_out"
+case "$verify_out" in
+  *"jar verified"*) ;;
+  *)
+    echo "AAB signature verification failed" >&2
+    exit 1
+    ;;
+esac
+
+java -jar "$BUNDLETOOL_JAR" validate --bundle="$OUT/Blue-Lot.aab"
+java -jar "$BUNDLETOOL_JAR" dump manifest --bundle="$OUT/Blue-Lot.aab" > "$OUT/aab-manifest.xml"
+python3 - "$OUT/aab-manifest.xml" "${VERSION_CODE:-}" "${VERSION_NAME:-}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+print("\n".join(text.splitlines()[:15]))
+code, name = sys.argv[2], sys.argv[3]
+if 'package="com.bluelot.app"' not in text:
+    raise SystemExit("AAB package is not com.bluelot.app")
+found_code = re.search(r'versionCode="(\d+)"', text)
+found_name = re.search(r'versionName="([^"]*)"', text)
+if found_code is None or found_name is None:
+    raise SystemExit("AAB manifest is missing versionCode or versionName")
+if code and found_code.group(1) != code:
+    raise SystemExit(f"AAB versionCode is {found_code.group(1)}, expected {code}")
+if name and found_name.group(1) != name:
+    raise SystemExit(f"AAB versionName is {found_name.group(1)}, expected {name}")
+print("aab", found_code.group(1), found_name.group(1))
+PY
+
+badging=$("$BT/aapt" dump badging "$OUT/Blue-Lot.apk")
+printf '%s\n' "$badging" | head -30 || true
+case "$badging" in
+  *"name='com.bluelot.app'"*) ;;
+  *)
+    echo "APK package is not com.bluelot.app" >&2
+    exit 1
+    ;;
+esac
+if [ -n "${VERSION_CODE:-}" ]; then
+  case "$badging" in
+    *"versionCode='${VERSION_CODE}'"*) ;;
+    *)
+      echo "APK versionCode does not match VERSION_CODE=$VERSION_CODE" >&2
+      exit 1
+      ;;
+  esac
+fi
+if [ -n "${VERSION_NAME:-}" ]; then
+  case "$badging" in
+    *"versionName='${VERSION_NAME}'"*) ;;
+    *)
+      echo "APK versionName does not match VERSION_NAME=$VERSION_NAME" >&2
+      exit 1
+      ;;
+  esac
+fi
+
+mkdir -p "$ARTIFACTS"
+cp "$OUT/Blue-Lot.apk" "$ARTIFACTS/Blue-Lot.apk"
+cp "$OUT/Blue-Lot.aab" "$ARTIFACTS/Blue-Lot.aab"
+ls -lh "$ARTIFACTS/Blue-Lot.apk" "$ARTIFACTS/Blue-Lot.aab"
 echo BUILD_OK
