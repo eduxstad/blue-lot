@@ -11,12 +11,14 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 
 import org.json.JSONObject;
 
@@ -43,17 +45,39 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         webView = new WebView(this);
-        webView.setBackgroundColor(Color.parseColor("#0C1110"));
-        // Target 36 cannot opt out of edge-to-edge. Keep the page inside the
-        // system bars, cutout, and keyboard. The WebView background still
-        // paints behind the bars. Older releases keep the previous window fit.
+        int background = Color.parseColor("#0C1110");
+        webView.setBackgroundColor(background);
+        // Target 36 cannot opt out of edge-to-edge, and padding the WebView
+        // itself does not move the page. Inset a parent so the WebView's
+        // bounds clear the status bar, navigation bar, cutout, and keyboard.
+        // The parent background still paints behind the bars. Zero the insets
+        // passed downward so the page does not add that gap a second time.
+        // Older releases keep the previous window fit.
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(background);
+        root.addView(webView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
         if (Build.VERSION.SDK_INT >= 35) {
-            webView.setOnApplyWindowInsetsListener((view, insets) -> {
-                Insets bars = insets.getInsets(
-                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                Insets ime = insets.getInsets(WindowInsets.Type.ime());
-                view.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
-                return WindowInsets.CONSUMED;
+            root.setOnApplyWindowInsetsListener((view, insets) -> {
+                int types = WindowInsets.Type.systemBars()
+                        | WindowInsets.Type.displayCutout()
+                        | WindowInsets.Type.ime();
+                Insets pad = insets.getInsets(types);
+                view.setPadding(pad.left, pad.top, pad.right, pad.bottom);
+                return new WindowInsets.Builder(insets)
+                        .setInsets(types, Insets.NONE)
+                        .build();
+            });
+            root.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                @Override
+                public void onViewAttachedToWindow(View v) {
+                    v.post(() -> v.requestApplyInsets());
+                }
+
+                @Override
+                public void onViewDetachedFromWindow(View v) {
+                }
             });
         }
 
@@ -100,8 +124,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        setContentView(webView);
-        if (Build.VERSION.SDK_INT >= 35) webView.requestApplyInsets();
+        setContentView(root);
         String stall = stallExtra();
         webView.loadUrl("file:///android_asset/www/index.html" + (stall == null ? "" : "?stall=" + Uri.encode(stall)));
     }
