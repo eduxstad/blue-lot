@@ -5,11 +5,13 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.net.Uri;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -42,6 +44,18 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         webView = new WebView(this);
         webView.setBackgroundColor(Color.parseColor("#0C1110"));
+        // Target 36 cannot opt out of edge-to-edge. Keep the page inside the
+        // system bars, cutout, and keyboard. The WebView background still
+        // paints behind the bars. Older releases keep the previous window fit.
+        if (Build.VERSION.SDK_INT >= 35) {
+            webView.setOnApplyWindowInsetsListener((view, insets) -> {
+                Insets bars = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                view.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+                return WindowInsets.CONSUMED;
+            });
+        }
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -87,6 +101,7 @@ public class MainActivity extends Activity {
         });
 
         setContentView(webView);
+        if (Build.VERSION.SDK_INT >= 35) webView.requestApplyInsets();
         String stall = stallExtra();
         webView.loadUrl("file:///android_asset/www/index.html" + (stall == null ? "" : "?stall=" + Uri.encode(stall)));
     }
