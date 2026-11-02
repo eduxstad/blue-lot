@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- SHA-256 digests from androidx.car.app hosts_allowlist_sample (Car App Library 1.4.0). -->
+    <!-- SHA-256 digests from androidx.car.app hosts_allowlist_sample (Car App Library 1.7.0). -->
     <string-array name="hosts_allowlist" translatable="false">
         <item>fdb00c43dbde8b51cb312aa81d3b5fa17713adb94b28f598d77f8eb89daceedf,com.google.android.projection.gearhead</item>
         <item>70811a3eacfd2e83e18da9bfede52df16ce91f2e69a44d21f18ab66991130771,com.google.android.projection.gearhead</item>

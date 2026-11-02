@@ -39,10 +39,8 @@ import java.util.concurrent.Executors;
  */
 public class ChargerCarService extends CarAppService {
     /**
-     * Minimum list and pane sizes published in res/values/car_lib.xml.
-     * These are read locally. Asking {@code ConstraintManager} from {@code onGetTemplate}
-     * calls back into the host while it is blocked waiting for the template, and Android
-     * Auto then shows "isn't responding" until the process is killed.
+     * Minimum list and pane sizes from res/values/car_lib.xml.
+     * Read them here instead of asking the host while it is waiting for a template.
      */
     static final int LIST_PAGE_SIZE = 6;
     static final int PANE_ROW_LIMIT = 4;
