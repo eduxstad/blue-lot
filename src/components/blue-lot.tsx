@@ -9,11 +9,13 @@ import {
   RefreshCw,
   Search,
   Star,
+  TriangleAlert,
   Unplug,
   X,
 } from "lucide-react";
 import { appVersion } from "@/lib/app-version";
 import {
+  connectionFailureMessage,
   formatAgo,
   formatDuration,
   formatLocal,
@@ -63,9 +65,13 @@ function mapsHref(address: string, city: string, state: string, zip: string) {
   return `https://maps.google.com/?q=${encodeURIComponent(query || "12250 Crenshaw Blvd, Hawthorne, CA")}`;
 }
 
+type FeedProblem = { title: string; body: string };
+
 export function BlueLot({ initial }: { initial: ChargerResult }) {
   const fetchChargers = useServerFn(getChargers);
   const [result, setResult] = useState(initial);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const resultRef = useRef(initial);
   const [pending, setPending] = useState(false);
   const [filter, setFilter] = useState<Filter>("open");
   const [query, setQuery] = useState("");
@@ -126,15 +132,27 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
     if (manual) setPending(true);
     try {
       const next = await fetchChargers();
-      setResult((current) => {
-        if (!next.ok) return current.ok ? current : next;
-        if (current.ok && current.snapshot.live && !next.snapshot.live) return current;
-        return next;
-      });
+      const current = resultRef.current;
+      if (!next.ok) {
+        setRefreshError(next.error);
+        if (!current.ok) {
+          setResult(
+            current.snapshot && !next.snapshot ? { ...next, snapshot: current.snapshot } : next,
+          );
+        }
+        return;
+      }
+      if (current.ok && current.snapshot.live && !next.snapshot.live) {
+        setRefreshError(connectionFailureMessage("network"));
+        return;
+      }
+      setRefreshError(null);
+      setResult(next);
     } catch {
-      setResult((current) =>
-        current.ok ? current : { ok: false, error: "Couldn't refresh the charger feed." },
-      );
+      const current = resultRef.current;
+      const message = connectionFailureMessage("network");
+      setRefreshError(message);
+      if (!current.ok && !current.snapshot) setResult({ ok: false, error: message });
     } finally {
       if (manual) setPending(false);
     }
@@ -158,7 +176,24 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
     }
   }, []);
 
-  const snapshot = result.ok ? result.snapshot : null;
+  resultRef.current = result;
+  const snapshot = result.ok ? result.snapshot : (result.snapshot ?? null);
+  const problem: FeedProblem | null = !result.ok
+    ? {
+        title: "Couldn't load stall data",
+        body: snapshot ? `${result.error} This list may be out of date.` : result.error,
+      }
+    : refreshError
+      ? {
+          title: "Couldn't refresh the chargers",
+          body: `${refreshError} This list may be out of date.`,
+        }
+      : snapshot && !snapshot.live
+        ? {
+            title: "Couldn't load stall data",
+            body: "Live feed didn't answer. This is the last full reading, not the current second.",
+          }
+        : null;
 
   useEffect(() => {
     if (!snapshot) return;
@@ -330,10 +365,10 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
 
           <section className="rounded-3xl border border-line bg-surface p-5">
             <p className="font-mono text-6xl font-medium leading-none tracking-tight text-open">
-              {result.ok ? counts.open : "–"}
+              {snapshot ? counts.open : "–"}
             </p>
             <p className="mt-2 text-sm text-muted">
-              {result.ok ? (
+              {snapshot ? (
                 <>
                   open of {counts.all} stalls ·{" "}
                   <span className="text-busy">{counts.busy} in use</span>
@@ -341,16 +376,16 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                   {counts.offline} offline
                 </>
               ) : (
-                "waiting on the feed"
+                "Couldn't load stall data"
               )}
             </p>
-            <p className="mt-3 text-xs text-muted">
-              {snapshot?.live ? `Updated ${updated || "—"}` : `Saved reading · ${updated || "—"}`}
-            </p>
-            {snapshot && !snapshot.live ? (
-              <p className="mt-2 text-sm text-fg">
-                Live feed didn't answer. This is the last full reading, not the current second.
+            {snapshot ? (
+              <p className="mt-3 text-xs text-muted">
+                {snapshot.live ? `Updated ${updated || "—"}` : `Saved reading · ${updated || "—"}`}
               </p>
+            ) : null}
+            {problem && snapshot ? (
+              <FeedAlert problem={problem} pending={pending} onRetry={() => void refresh(true)} />
             ) : null}
             {snapshot ? (
               <a
@@ -419,18 +454,13 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
                   : undefined
             }
           >
-            {!result.ok ? (
-              <div className="rounded-3xl border border-line bg-surface p-6">
-                <h2 className="text-lg font-medium">Feed unavailable</h2>
-                <p className="mt-2 text-sm text-muted">{result.error}</p>
-                <button
-                  type="button"
-                  onClick={() => void refresh(true)}
-                  className="mt-4 inline-flex h-11 items-center rounded-full bg-open px-4 text-sm font-medium text-open-ink"
-                >
-                  Try again
-                </button>
-              </div>
+            {problem && !snapshot ? (
+              <FeedAlert
+                prominent
+                problem={problem}
+                pending={pending}
+                onRetry={() => void refresh(true)}
+              />
             ) : floors.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-line bg-surface p-6">
                 <h2 className="text-lg font-medium">
@@ -535,6 +565,45 @@ export function BlueLot({ initial }: { initial: ChargerResult }) {
           onPin={() => togglePin(active.name)}
         />
       ) : null}
+    </div>
+  );
+}
+
+function FeedAlert({
+  problem,
+  pending,
+  prominent = false,
+  onRetry,
+}: {
+  problem: FeedProblem;
+  pending: boolean;
+  prominent?: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className={
+        prominent
+          ? "rounded-3xl border border-busy/45 bg-busy/10 p-6"
+          : "mt-3 rounded-2xl border border-busy/45 bg-busy/10 px-3 py-3"
+      }
+    >
+      <div className="flex items-start gap-2">
+        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-busy" aria-hidden="true" />
+        <h2 className={prominent ? "text-lg font-medium" : "text-sm font-medium"}>
+          {problem.title}
+        </h2>
+      </div>
+      <p className="mt-2 text-sm text-muted">{problem.body}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={pending}
+        className="mt-3 inline-flex h-11 items-center rounded-full bg-open px-4 text-sm font-medium text-open-ink disabled:opacity-60"
+      >
+        Try again
+      </button>
     </div>
   );
 }

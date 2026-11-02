@@ -44,8 +44,24 @@ export type Snapshot = {
 };
 
 export type ChargerResult =
-  | { ok: true; snapshot: Snapshot }
-  | { ok: false; error: string };
+  { ok: true; snapshot: Snapshot } | { ok: false; error: string; snapshot?: Snapshot };
+
+export type ConnectionFailure = "offline" | "timeout" | "http" | "unreadable" | "network";
+
+export function connectionFailureMessage(kind: ConnectionFailure): string {
+  switch (kind) {
+    case "offline":
+      return "You're offline. Check your connection and try again.";
+    case "timeout":
+      return "The charger feed timed out. Check your connection and try again.";
+    case "http":
+      return "The charger feed returned an error. Try again in a moment.";
+    case "unreadable":
+      return "The charger feed sent a response we couldn't read. Try again in a moment.";
+    case "network":
+      return "Couldn't reach the charger feed. Check your connection and try again.";
+  }
+}
 
 type RawInfo = {
   status?: string;
@@ -122,7 +138,20 @@ export function formatDuration(seconds: number) {
 export function formatUtc(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "unknown";
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   const hh = String(date.getUTCHours()).padStart(2, "0");
   const mm = String(date.getUTCMinutes()).padStart(2, "0");
   return `${months[date.getUTCMonth()]} ${date.getUTCDate()}, ${hh}:${mm} UTC`;
@@ -209,6 +238,30 @@ function staleSnapshot(): Snapshot {
   };
 }
 
+function isTimeout(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = "name" in error ? String(error.name) : "";
+  if (name === "TimeoutError" || name === "AbortError") return true;
+  const message = "message" in error && typeof error.message === "string" ? error.message : "";
+  return /timeout/i.test(message);
+}
+
+function failureKind(error: unknown, status?: number): ConnectionFailure {
+  if (typeof status === "number") return "http";
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return "offline";
+  if (isTimeout(error)) return "timeout";
+  if (error instanceof SyntaxError) return "unreadable";
+  return "network";
+}
+
+function failedResult(error?: unknown, status?: number): ChargerResult {
+  return {
+    ok: false,
+    error: connectionFailureMessage(failureKind(error, status)),
+    snapshot: staleSnapshot(),
+  };
+}
+
 export async function loadChargers(timeoutMs = 7000): Promise<ChargerResult> {
   try {
     const response = await fetch(SITE_URL, {
@@ -216,7 +269,7 @@ export async function loadChargers(timeoutMs = 7000): Promise<ChargerResult> {
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) return { ok: true, snapshot: staleSnapshot() };
+    if (!response.ok) return failedResult(undefined, response.status);
     const data = (await response.json()) as RawSite;
     const gateways = new Map<number, string>();
     for (const gateway of data.gateways ?? []) {
@@ -247,7 +300,10 @@ export async function loadChargers(timeoutMs = 7000): Promise<ChargerResult> {
           portId: station.portId ?? null,
         };
       })
-      .sort((a, b) => a.floor - b.floor || Number(a.name) - Number(b.name) || a.name.localeCompare(b.name));
+      .sort(
+        (a, b) =>
+          a.floor - b.floor || Number(a.name) - Number(b.name) || a.name.localeCompare(b.name),
+      );
 
     return {
       ok: true,
@@ -262,12 +318,14 @@ export async function loadChargers(timeoutMs = 7000): Promise<ChargerResult> {
         stalls,
       },
     };
-  } catch {
-    return { ok: true, snapshot: staleSnapshot() };
+  } catch (error) {
+    return failedResult(error);
   }
 }
 
-export const getChargers = createServerFn({ method: "GET" }).handler(async () => loadChargers(7000));
+export const getChargers = createServerFn({ method: "GET" }).handler(async () =>
+  loadChargers(7000),
+);
 
 export const loadRouteChargers = createIsomorphicFn()
   .server(() => loadChargers(1000))

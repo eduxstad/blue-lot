@@ -115,12 +115,18 @@
     }
     .clock.open { background: var(--open); color: var(--ink); }
     .stall-bot { margin-top: auto; padding-top: 12px; }
-    .empty, .feed {
+    .empty, .feed, .alert {
       border-radius: 24px; border: 1px dashed var(--line); background: var(--surface); padding: 22px;
     }
     .feed { border-style: solid; }
-    .empty h2, .feed h2 { margin: 0; font-size: 18px; font-weight: 500; }
-    .empty p, .feed p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+    .alert {
+      border-style: solid;
+      border-color: rgba(255, 77, 90, 0.55);
+      background: rgba(255, 77, 90, 0.08);
+      margin-bottom: 18px;
+    }
+    .empty h2, .feed h2, .alert h2 { margin: 0; font-size: 18px; font-weight: 500; }
+    .empty p, .feed p, .alert p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
     .retry {
       margin-top: 14px; height: 44px; padding: 0 16px; border-radius: 99px;
       background: var(--open); color: var(--ink); font-weight: 600; font-size: 14px;
@@ -493,14 +499,25 @@
       }).join("");
     }
 
+    function connectionAlertHtml() {
+      if (!failed) return "";
+      const hasStalls = !!(state && state.stalls && state.stalls.length);
+      const title = hasStalls && state.live ? "Couldn't refresh the chargers" : "Couldn't load stall data";
+      const copy = hasStalls
+        ? "Check your connection and try again. This list may be out of date."
+        : "Check your connection and try again.";
+      return '<div class="alert" role="alert"><h2>' + title + '</h2><p>' + copy + '</p><button class="retry" id="retry" type="button">Try again</button></div>';
+    }
+
     function renderList() {
       const root = $("list");
-      if (!state) {
-        root.innerHTML = "";
+      const banner = connectionAlertHtml();
+      if (!state || !state.stalls) {
+        root.innerHTML = banner;
         return;
       }
-      if (failed && !state.live && state.stalls.length === 0) {
-        root.innerHTML = '<div class="feed"><h2>Feed unavailable</h2><p>Couldn\'t reach the charger feed.</p><button class="retry" id="retry" type="button">Try again</button></div>';
+      if (state.stalls.length === 0) {
+        root.innerHTML = banner || '<div class="empty"><h2>Nothing open right now</h2><p>Try another filter, or check back after the next refresh.</p></div>';
         return;
       }
       const visible = visibleStalls();
@@ -511,7 +528,7 @@
           : query
             ? "No stall numbered " + esc(query) + "."
             : "Try another filter, or check back after the next refresh.";
-        root.innerHTML = '<div class="empty"><h2>' + title + '</h2><p>' + copy + '</p></div>';
+        root.innerHTML = banner + '<div class="empty"><h2>' + title + '</h2><p>' + copy + '</p></div>';
         return;
       }
       const groups = new Map();
@@ -521,7 +538,7 @@
         groups.set(stall.floor, list);
       }
       const floors = [...groups.entries()].sort((a, b) => a[0] - b[0]);
-      root.innerHTML = '<div class="floors">' + floors.map(([floor, group]) => {
+      root.innerHTML = banner + '<div class="floors">' + floors.map(([floor, group]) => {
         const title = floor === 0 ? "Unassigned" : "Floor " + floor;
         const cards = group.map((stall) => {
           const pinned = pins.includes(stall.name);
@@ -611,18 +628,22 @@
       claimPendingStall();
       const stalls = state ? state.stalls : [];
       const counts = countsOf(stalls);
+      const showCounts = !!(state && stalls.length > 0);
       $("sub").textContent = state
         ? ((state.city || "Hawthorne") + " J1772 · " + state.site)
         : "Hawthorne garage";
-      $("count").textContent = state ? String(counts.open) : "–";
-      $("meta").innerHTML = state
+      $("count").textContent = showCounts ? String(counts.open) : "–";
+      $("meta").innerHTML = showCounts
         ? ("open of " + stalls.length + " stalls · <span class=\"busy-count\">" + counts.busy + " in use</span> · " + counts.offline + " offline")
-        : "Checking the garage…";
-      $("when").textContent = state
+        : (failed ? "Couldn't load stall data" : "Checking the garage…");
+      $("when").textContent = showCounts
         ? ((state.live ? "Updated " : "Saved reading · ") + (state.fetchedAt ? formatAgo(state.fetchedAt) : "—"))
         : "";
       const note = $("note");
-      if (state && !state.live) {
+      if (failed && state && state.live && stalls.length > 0) {
+        note.hidden = false;
+        note.textContent = "Couldn't refresh. This reading may be out of date.";
+      } else if (state && !state.live && stalls.length > 0) {
         note.hidden = false;
         note.textContent = "Live feed didn't answer. This is the last full reading, not the current second.";
       } else {
@@ -878,7 +899,12 @@
     }
     render();
     refresh();
-    setInterval(() => { now = Date.now(); if (state) $("when").textContent = (state.live ? "Updated " : "Saved reading · ") + formatAgo(state.fetchedAt); }, 1000);
+    setInterval(() => {
+      now = Date.now();
+      if (state && state.stalls && state.stalls.length > 0) {
+        $("when").textContent = (state.live ? "Updated " : "Saved reading · ") + formatAgo(state.fetchedAt);
+      }
+    }, 1000);
     setInterval(() => { if (!pending) refresh(); }, 30000);
     setTimeout(() => {
       if (!state) {

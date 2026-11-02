@@ -6,10 +6,12 @@ import { classifyAxis, pageAfterSwipe, swipeDirection, swipeTargetBlocked } from
 import { appVersion } from "@/lib/app-version";
 import { LONG_SESSION_SECONDS, type ChargerResult, type Stall } from "@/lib/chargers";
 
+const refreshState = vi.hoisted(() => ({
+  impl: (): Promise<ChargerResult> => new Promise<ChargerResult>(() => {}),
+}));
+
 vi.mock("@tanstack/react-start", () => ({
-  useServerFn: () => async () => {
-    throw new Error("refresh stays off in story tests");
-  },
+  useServerFn: () => () => refreshState.impl(),
   createServerFn: () => ({
     handler: () => async () => ({ ok: false, error: "unused" }),
   }),
@@ -105,6 +107,7 @@ async function showInUse() {
 
 beforeEach(() => {
   localStorage.clear();
+  refreshState.impl = () => new Promise<ChargerResult>(() => {});
 });
 
 afterEach(() => {
@@ -226,9 +229,98 @@ describe("story: search and saved stalls", () => {
 
 describe("story: a missing feed", () => {
   it("shows the error and a retry", () => {
-    render(<BlueLot initial={{ ok: false, error: "Couldn't refresh the charger feed." }} />);
-    expect(screen.getByRole("heading", { name: "Feed unavailable" })).toBeTruthy();
+    render(
+      <BlueLot
+        initial={{
+          ok: false,
+          error: "Couldn't reach the charger feed. Check your connection and try again.",
+        }}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Couldn't load stall data" })).toBeTruthy();
+    expect(
+      screen.getByText("Couldn't reach the charger feed. Check your connection and try again."),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /1054/ })).toBeNull();
+  });
+
+  it("keeps a saved reading visible and labels it out of date", () => {
+    const saved = board([openStall], false);
+    if (!saved.ok) throw new Error("expected a snapshot");
+    render(
+      <BlueLot
+        initial={{
+          ok: false,
+          error: "The charger feed returned an error. Try again in a moment.",
+          snapshot: saved.snapshot,
+        }}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(
+      "The charger feed returned an error. Try again in a moment.",
+    );
+    expect(alert.textContent).toContain("This list may be out of date.");
+    expect(screen.getByText(/Saved reading ·/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /1054/ })).toBeTruthy();
+  });
+
+  it("shows an error when a refresh fails and clears it after the next success", async () => {
+    const user = userEvent.setup();
+    let attempt = 0;
+    refreshState.impl = async () => {
+      attempt += 1;
+      if (attempt === 1) {
+        return { ok: false, error: "You're offline. Check your connection and try again." };
+      }
+      return story;
+    };
+    render(<BlueLot initial={story} />);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("You're offline. Check your connection and try again.");
+    expect(alert.textContent).toContain("This list may be out of date.");
+    expect(screen.getByRole("button", { name: /1054/ })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+    expect(screen.getByRole("button", { name: /1054/ })).toBeTruthy();
+    expect(screen.getByText(/Updated/)).toBeTruthy();
+  });
+
+  it("keeps the last stalls when the refresh request throws", async () => {
+    refreshState.impl = async () => {
+      throw new Error("network down");
+    };
+    render(<BlueLot initial={story} />);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Couldn't reach the charger feed. Check your connection and try again.",
+    );
+    expect(alert.textContent).toContain("This list may be out of date.");
+    expect(screen.getByRole("button", { name: /1054/ })).toBeTruthy();
+  });
+
+  it("clears a failed first load once a later fetch succeeds", async () => {
+    const saved = board([openStall], false);
+    if (!saved.ok) throw new Error("expected a snapshot");
+    refreshState.impl = async () => story;
+    render(
+      <BlueLot
+        initial={{
+          ok: false,
+          error: "The charger feed timed out. Check your connection and try again.",
+          snapshot: saved.snapshot,
+        }}
+      />,
+    );
+    expect(screen.getByRole("alert")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+    expect(screen.getByRole("button", { name: /1054/ })).toBeTruthy();
   });
 });
 
