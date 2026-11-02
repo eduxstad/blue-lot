@@ -8,8 +8,8 @@ describe("Android Auto charging app", () => {
   const workflow = readFileSync(".github/workflows/play-internal-release.yml", "utf8");
 
   it("registers a Play POI Car App at API level 1", () => {
-    expect(manifest).toContain('android:versionCode="13"');
-    expect(manifest).toContain('android:versionName="1.12.0"');
+    expect(manifest).toContain('android:versionCode="19"');
+    expect(manifest).toContain('android:versionName="1.12.1"');
     expect(manifest).toContain("androidx.car.app.CarAppService");
     expect(manifest).toContain("androidx.car.app.category.POI");
     expect(manifest).not.toContain("androidx.car.app.category.CHARGING");
@@ -40,7 +40,22 @@ describe("Android Auto charging app", () => {
     expect(workflow).toContain("packageName: com.duxstad.bluelotchargers");
     expect(workflow).toContain("releaseFiles: android/build/Blue-Lot.aab");
     expect(workflow).toContain("track: internal");
-    expect(workflow).toContain("version_code=$((13 + ${GITHUB_RUN_NUMBER:?}))");
-    expect(workflow).toContain("versionName=${INPUT_VERSION_NAME:-1.12.0}");
+    expect(workflow).toContain("version_code=$((18 + ${GITHUB_RUN_NUMBER:?}))");
+    expect(workflow).toContain("versionName=${INPUT_VERSION_NAME:-1.12.1}");
+  });
+
+  it("returns the first car template without calling the host or the feed", () => {
+    const source = readFileSync("android/java/com/bluelot/app/ChargerCarService.java", "utf8");
+    expect(source).not.toContain("getContentLimit");
+    expect(source).not.toContain("constraints.ConstraintManager");
+    expect(source).not.toContain("getCarService(ConstraintManager");
+    expect(source).toContain("setLoading(true)");
+    expect(source).toContain('static final String FEED_ERROR = "Couldn\'t reach the charger feed."');
+    const loads = source.split("ChargerFeed.load(").length - 1;
+    expect(loads).toBe(1);
+    const loadAt = source.indexOf("ChargerFeed.load(");
+    const executeAt = source.lastIndexOf("executor.execute", loadAt);
+    expect(executeAt).toBeGreaterThan(-1);
+    expect(source.slice(0, executeAt)).not.toContain("ChargerFeed.load(");
   });
 });
