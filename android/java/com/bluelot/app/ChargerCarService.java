@@ -1,5 +1,6 @@
 package com.bluelot.app;
 
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.net.Uri;
@@ -10,7 +11,6 @@ import androidx.car.app.CarAppService;
 import androidx.car.app.CarContext;
 import androidx.car.app.Screen;
 import androidx.car.app.Session;
-import androidx.car.app.constraints.ConstraintManager;
 import androidx.car.app.model.Action;
 import androidx.car.app.model.ActionStrip;
 import androidx.car.app.model.CarIcon;
@@ -38,6 +38,15 @@ import java.util.concurrent.Executors;
  * then a detail screen can start navigation when the template allows it.
  */
 public class ChargerCarService extends CarAppService {
+    /**
+     * Minimum list and pane sizes published in res/values/car_lib.xml.
+     * These are read locally. Asking {@code ConstraintManager} from {@code onGetTemplate}
+     * calls back into the host while it is blocked waiting for the template, and Android
+     * Auto then shows "isn't responding" until the process is killed.
+     */
+    static final int LIST_PAGE_SIZE = 6;
+    static final int PANE_ROW_LIMIT = 4;
+    static final String FEED_ERROR = "Couldn't reach the charger feed.";
     @Override
     public HostValidator createHostValidator() {
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
@@ -128,69 +137,81 @@ public class ChargerCarService extends CarAppService {
 
         StallListScreen(CarContext context) {
             super(context);
-            reload();
+            reload(false);
         }
 
-        private void reload() {
+        /**
+         * @param showLoadingNow when the screen is already up, swap to the loading
+         *                       template immediately. The first load skips this: the
+         *                       host has not started the screen yet, and {@link #invalidate()}
+         *                       would be ignored until then. The host's first
+         *                       {@link #onGetTemplate()} sees {@code loading} and returns.
+         */
+        private void reload(final boolean showLoadingNow) {
             loading = true;
             error = null;
             final int gen = ++generation;
-            invalidate();
-            final CarContext context = getCarContext();
+            if (showLoadingNow && started()) invalidate();
+            final Context appContext = getCarContext().getApplicationContext();
             executor.execute(new Runnable() {
                 @Override
                 public void run() {
                     final ChargerFeed.Snapshot snapshot;
+                    final Map<String, Long> seen = new HashMap<String, Long>();
                     try {
-                        snapshot = ChargerFeed.load(readFallback());
+                        snapshot = ChargerFeed.load(readFallback(appContext));
+                        long nowMs = System.currentTimeMillis();
+                        for (ChargerFeed.Stall stall : snapshot.stalls) {
+                            long seconds = ChargerFeed.rememberOpen(
+                                    appContext,
+                                    stall.name,
+                                    "open".equals(stall.availability),
+                                    nowMs);
+                            if (seconds >= 0) seen.put(stall.name, Long.valueOf(seconds));
+                        }
                     } catch (Exception err) {
                         main.post(new Runnable() {
                             @Override
                             public void run() {
-                                if (gen != generation || !alive()) return;
+                                if (gen != generation || destroyed()) return;
                                 loading = false;
-                                error = "Couldn't reach the charger feed.";
-                                invalidate();
+                                error = FEED_ERROR;
+                                if (started()) invalidate();
                             }
                         });
                         return;
                     }
-                    final Map<String, Long> seen = new HashMap<String, Long>();
-                    long nowMs = System.currentTimeMillis();
-                    for (ChargerFeed.Stall stall : snapshot.stalls) {
-                        long seconds = ChargerFeed.rememberOpen(
-                                context,
-                                stall.name,
-                                "open".equals(stall.availability),
-                                nowMs);
-                        if (seconds >= 0) seen.put(stall.name, Long.valueOf(seconds));
-                    }
                     main.post(new Runnable() {
                         @Override
                         public void run() {
-                            if (gen != generation || !alive()) return;
+                            if (gen != generation || destroyed()) return;
                             loading = false;
                             live = snapshot.live;
                             stalls = snapshot.stalls;
                             openFor = seen;
                             directions = snapshot.site.directionsQuery();
+                            error = !live && stalls.isEmpty() ? FEED_ERROR : null;
                             int pages = pageCount();
                             if (page >= pages) page = pages - 1;
                             if (page < 0) page = 0;
-                            invalidate();
+                            if (started()) invalidate();
                         }
                     });
                 }
             });
         }
 
-        private boolean alive() {
-            return getLifecycle().getCurrentState() != Lifecycle.State.DESTROYED;
+        private boolean started() {
+            return getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED);
         }
 
-        private String readFallback() {
+        private boolean destroyed() {
+            return getLifecycle().getCurrentState() == Lifecycle.State.DESTROYED;
+        }
+
+        private static String readFallback(Context context) {
             try {
-                InputStream in = getCarContext().getAssets().open("fallback-snapshot.json");
+                InputStream in = context.getAssets().open("fallback-snapshot.json");
                 try {
                     return ChargerFeed.readStream(in);
                 } finally {
@@ -202,15 +223,7 @@ public class ChargerCarService extends CarAppService {
         }
 
         private int pageSize() {
-            try {
-                ConstraintManager limits =
-                        (ConstraintManager) getCarContext().getCarService(ConstraintManager.class);
-                int limit = limits.getContentLimit(ConstraintManager.CONTENT_LIMIT_TYPE_LIST);
-                if (limit > 0) return limit;
-            } catch (Exception ignored) {
-                /* host has not published a limit yet */
-            }
-            return 6;
+            return LIST_PAGE_SIZE;
         }
 
         private int pageCount() {
@@ -261,11 +274,20 @@ public class ChargerCarService extends CarAppService {
 
         @Override
         public Template onGetTemplate() {
+            // Return before any feed, disk, or host work. The host is blocked in
+            // getTemplate until this method returns.
+            if (loading) {
+                return new ListTemplate.Builder()
+                        .setTitle("Stalls")
+                        .setHeaderAction(Action.APP_ICON)
+                        .setLoading(true)
+                        .build();
+            }
+
             ListTemplate.Builder template = new ListTemplate.Builder()
                     .setTitle(title())
                     .setHeaderAction(Action.APP_ICON)
                     .setActionStrip(strip());
-            if (loading) return template.setLoading(true).build();
 
             ItemList.Builder list = new ItemList.Builder();
             if (error != null) {
@@ -310,7 +332,7 @@ public class ChargerCarService extends CarAppService {
             Runnable refresh = new Runnable() {
                 @Override
                 public void run() {
-                    reload();
+                    reload(true);
                 }
             };
             if (hasPrev && hasNext) {
@@ -395,15 +417,7 @@ public class ChargerCarService extends CarAppService {
         }
 
         private int paneLimit() {
-            try {
-                ConstraintManager limits =
-                        (ConstraintManager) getCarContext().getCarService(ConstraintManager.class);
-                int limit = limits.getContentLimit(ConstraintManager.CONTENT_LIMIT_TYPE_PANE);
-                if (limit > 0) return limit;
-            } catch (Exception ignored) {
-                /* host has not published a limit yet */
-            }
-            return 4;
+            return PANE_ROW_LIMIT;
         }
 
         private void navigate() {
