@@ -7,4 +7,6 @@ attachments/
 dist/
 *.keystore
 android/build/
+android/.car-libs/
+android/.bundletool/
 AGENTS.md

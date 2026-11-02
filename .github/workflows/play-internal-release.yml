@@ -7,6 +7,10 @@ on:
         description: 'Version name override (optional)'
         required: false
         default: ''
+      version_code:
+        description: 'versionCode override (optional; default is 12 plus github.run_number)'
+        required: false
+        default: ''
       release_notes:
         description: 'Release notes'
         required: false
@@ -15,6 +19,9 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,27 +37,61 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;35.0.0'
 
-      # Note: The existing android/build.sh is environment-specific (hardcoded /tmp paths, generates its own keystore).
-      # For reliable CI we recommend adapting it or using a Gradle wrapper in the future.
-      # This step is a placeholder that you can replace with a CI-friendly build once adapted.
-      - name: Prepare and build APK (custom script)
+      - name: Install Pillow
         run: |
-          # Install any extra deps the script needs (python3, etc. are usually present)
-          sudo apt-get update && sudo apt-get install -y python3-pil || true
-          # You will likely need to patch build.sh paths or provide a CI version
-          # For now, this is a starting point
-          echo "Build step needs adaptation for the custom android/build.sh"
-          # mkdir -p /tmp/android-sdk && ... (example)
-          # ./android/build.sh
-        continue-on-error: true
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pil
+
+      - name: Resolve version
+        env:
+          INPUT_VERSION_CODE: ${{ inputs.version_code }}
+          INPUT_VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION_CODE" ]; then
+            if ! printf '%s\n' "$INPUT_VERSION_CODE" | grep -Eq '^[1-9][0-9]*$'; then
+              echo "version_code must be a positive integer without leading zeros" >&2
+              exit 1
+            fi
+            version_code=$INPUT_VERSION_CODE
+          else
+            version_code=$((12 + ${GITHUB_RUN_NUMBER:?}))
+          fi
+          if [ "$version_code" -gt 2100000000 ]; then
+            echo "version_code is above the Android maximum" >&2
+            exit 1
+          fi
+          echo "VERSION_CODE=$version_code" >> "${GITHUB_ENV:?}"
+          if [ -n "$INPUT_VERSION_NAME" ]; then
+            if ! printf '%s\n' "$INPUT_VERSION_NAME" | grep -Eq '^[0-9A-Za-z.+_-]+$'; then
+              echo "version_name may contain only letters, digits, and . + _ -" >&2
+              exit 1
+            fi
+            echo "VERSION_NAME=$INPUT_VERSION_NAME" >> "${GITHUB_ENV:?}"
+          fi
+          echo "versionCode=$version_code versionName=${INPUT_VERSION_NAME:-1.11.0}"
+
+      # build.sh downloads bundletool 1.18.3 and the pinned AndroidX/Guava jars.
+      - name: Build signed APK and AAB
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: bash android/build.sh
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blue-Lot-aab
+          path: android/build/Blue-Lot.aab
+          if-no-files-found: error
 
       - name: Upload to Google Play Internal Testing
-        if: success()
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.bluelot.app
-          releaseFiles: android/build/Blue-Lot.apk   # adjust path once build is working
+          releaseFiles: android/build/Blue-Lot.aab
           track: internal
-          status: draft   # use 'completed' once confirmed; draft for safety
-          # whatsNewDirectory: distribution/whatsnew
+          status: draft
