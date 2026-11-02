@@ -373,6 +373,69 @@ describe("page swipe decisions", () => {
   });
 });
 
+function filterChrome() {
+  const nav = screen.getByRole("navigation", { name: "Stall filters" });
+  const shell = document.querySelector(".page-swipe");
+  const scroll = document.querySelector("[data-page-scroll]");
+  const clip = document.querySelector("[data-page-clip]");
+  const board = document.querySelector("[data-page-board]");
+  return { nav, shell, scroll, clip, board };
+}
+
+function expectBarPinned() {
+  const { nav, shell, scroll, clip, board } = filterChrome();
+  expect(shell?.className).toContain("fixed");
+  expect(shell?.className).toContain("inset-0");
+  expect(shell?.className).toContain("overflow-hidden");
+  expect(nav.className).not.toContain("fixed");
+  expect(scroll?.className).toContain("overflow-x-hidden");
+  expect(scroll?.className).toContain("overflow-y-auto");
+  expect(scroll?.contains(nav)).toBe(false);
+  expect(shell?.contains(nav)).toBe(true);
+  expect(clip?.className).toContain("overflow-hidden");
+  expect(clip?.contains(board)).toBe(true);
+  expect(scroll?.contains(board)).toBe(true);
+}
+
+describe("story: bottom bar stays put", () => {
+  it("pins the filter bar outside the scroller so a page change cannot scroll the document", async () => {
+    render(<BlueLot initial={story} />);
+    expectBarPinned();
+
+    await showInUse();
+    expect(dockPressed(/In use/)).toBe("true");
+    expect(screen.getByRole("button", { name: /1050/ })).toBeTruthy();
+    expectBarPinned();
+    expect(document.querySelector("[data-page-board]")?.className ?? "").not.toContain(
+      "page-enter",
+    );
+  });
+
+  it("slides only the clipped list while a swipe is in progress", () => {
+    render(<BlueLot initial={story} />);
+    const main = screen.getByRole("main");
+    const { board, nav } = filterChrome();
+    const point = { pointerId: 1, pointerType: "touch" as const, isPrimary: true };
+    fireEvent.pointerDown(main, { ...point, clientX: 180, clientY: 220 });
+    fireEvent.pointerMove(main, { ...point, clientX: 100, clientY: 224 });
+    expect((board as HTMLElement).style.transform).toContain("translate3d");
+    expect((nav as HTMLElement).style.transform).toBe("");
+    expect(dockPressed(/^Open/)).toBe("true");
+
+    fireEvent.pointerUp(main, { ...point, clientX: 20, clientY: 226 });
+    expect(dockPressed(/In use/)).toBe("true");
+    expectBarPinned();
+    const entered = document.querySelector("[data-page-board]");
+    expect(entered?.className).toContain("page-enter-next");
+    expect(document.querySelector("[data-page-clip]")?.contains(entered ?? null)).toBe(true);
+    expect(
+      document
+        .querySelector("[data-page-scroll]")
+        ?.contains(screen.getByRole("navigation", { name: "Stall filters" })),
+    ).toBe(false);
+  });
+});
+
 describe("story: swiping between pages", () => {
   it("follows the bottom nav and keeps the pressed tab in sync", () => {
     render(<BlueLot initial={story} />);

@@ -88,6 +88,74 @@ function livePayload() {
   });
 }
 
+function station(name: string, chargeStatus: string, extras: Record<string, unknown> = {}) {
+  return {
+    name,
+    gatewayId: 1,
+    info: {
+      status: "online",
+      chargeStatus,
+      connection: chargeStatus === "charging" ? "connected" : "disconnected",
+      operating_voltage: 220,
+      max_charge_current: 30,
+      ...extras,
+    },
+  };
+}
+
+function sitePayload(stations: ReturnType<typeof station>[]) {
+  return JSON.stringify({
+    name: "SpaceX",
+    address: "12250 Crenshaw Blvd.",
+    city: "Hawthorne",
+    state: "California",
+    zipcode: "90250",
+    gateways: [{ id: 1, name: "KT-SX-1A" }],
+    stations,
+  });
+}
+
+describe("android webview filter bar", () => {
+  it("keeps the dock pinned outside the scroller when filters change", () => {
+    const view = boot(saved);
+    const doc = view.document;
+    const app = doc.querySelector(".app");
+    const scroller = doc.getElementById("scroller");
+    const clip = doc.querySelector(".list-clip");
+    const list = doc.getElementById("list");
+    const dock = doc.getElementById("dock");
+
+    expect(app).toBeTruthy();
+    expect(scroller?.contains(clip)).toBe(true);
+    expect(clip?.contains(list)).toBe(true);
+    expect(scroller?.contains(dock)).toBe(false);
+    expect(app?.contains(dock)).toBe(true);
+
+    const dockStyle = view.getComputedStyle(dock!);
+    expect(dockStyle.position).toBe("relative");
+    expect(view.getComputedStyle(doc.body).overflow).toBe("hidden");
+    expect(view.getComputedStyle(doc.documentElement).overflow).toBe("hidden");
+    expect(view.getComputedStyle(app!).overflow).toBe("hidden");
+    expect(view.getComputedStyle(scroller!).overflowX).toBe("hidden");
+    expect(view.getComputedStyle(scroller!).overflowY).toBe("auto");
+    expect(view.getComputedStyle(clip!).overflow).toBe("hidden");
+
+    view.onSitePayload(
+      sitePayload([
+        station("1054", "available"),
+        station("1050", "charging", { current_session_duration: 3 * 60 * 60 }),
+      ]),
+    );
+    (doc.querySelector("[data-filter='busy']") as HTMLButtonElement).click();
+    expect(doc.querySelector("[data-filter='busy']")?.getAttribute("aria-pressed")).toBe("true");
+    expect(doc.querySelector("[data-stall='1050']")).toBeTruthy();
+    expect(doc.querySelector("[data-stall='1054']")).toBeNull();
+    expect(scroller?.contains(doc.getElementById("dock"))).toBe(false);
+    expect(view.getComputedStyle(doc.getElementById("dock")!).position).toBe("relative");
+    expect(clip?.contains(doc.getElementById("list"))).toBe(true);
+  });
+});
+
 describe("android webview feed errors", () => {
   it("shows an error over the saved reading when nothing is connected", () => {
     const view = boot(saved);
