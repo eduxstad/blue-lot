@@ -23,6 +23,9 @@ set -euo pipefail
 BUNDLETOOL_VERSION=1.18.3
 GMAVEN=https://dl.google.com/dl/android/maven2
 CENTRAL=https://repo1.maven.org/maven2
+# Play Console application id. The Java sources stay in com.bluelot.app.
+APP_ID=com.duxstad.bluelotchargers
+JAVA_PACKAGE=com.bluelot.app
 
 ensure_jar() {
   local dest="$1"
@@ -302,6 +305,8 @@ PY
   -o "$OUT/linked.apk" \
   -I "$JAR" \
   --manifest "$MANIFEST" \
+  --rename-manifest-package "$APP_ID" \
+  --custom-package "$JAVA_PACKAGE" \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
   --java "$OUT/gen" \
@@ -438,6 +443,7 @@ PY
   -o "$OUT/base-proto.zip" \
   -I "$JAR" \
   --manifest "$MANIFEST" \
+  --rename-manifest-package "$APP_ID" \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
   -A "$OUT/assets" \
@@ -517,16 +523,16 @@ esac
 
 java -jar "$BUNDLETOOL_JAR" validate --bundle="$OUT/Blue-Lot.aab"
 java -jar "$BUNDLETOOL_JAR" dump manifest --bundle="$OUT/Blue-Lot.aab" > "$OUT/aab-manifest.xml"
-python3 - "$OUT/aab-manifest.xml" "${VERSION_CODE:-}" "${VERSION_NAME:-}" <<'PY'
+python3 - "$OUT/aab-manifest.xml" "${VERSION_CODE:-}" "${VERSION_NAME:-}" "$APP_ID" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
 print("\n".join(text.splitlines()[:15]))
-code, name = sys.argv[2], sys.argv[3]
-if 'package="com.bluelot.app"' not in text:
-    raise SystemExit("AAB package is not com.bluelot.app")
+code, name, app_id = sys.argv[2], sys.argv[3], sys.argv[4]
+if f'package="{app_id}"' not in text:
+    raise SystemExit(f"AAB package is not {app_id}")
 found_code = re.search(r'versionCode="(\d+)"', text)
 found_name = re.search(r'versionName="([^"]*)"', text)
 if found_code is None or found_name is None:
@@ -541,9 +547,9 @@ PY
 badging=$("$BT/aapt" dump badging "$OUT/Blue-Lot.apk")
 printf '%s\n' "$badging" | head -30 || true
 case "$badging" in
-  *"name='com.bluelot.app'"*) ;;
+  *"name='${APP_ID}'"*) ;;
   *)
-    echo "APK package is not com.bluelot.app" >&2
+    echo "APK package is not $APP_ID" >&2
     exit 1
     ;;
 esac
