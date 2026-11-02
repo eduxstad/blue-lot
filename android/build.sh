@@ -2,9 +2,9 @@
 # Build the Blue Lot APK and Play App Bundle without Gradle.
 #
 # Defaults match a checkout of this repo plus a normal Android SDK
-# (ANDROID_SDK_ROOT or ANDROID_HOME, build-tools/35.0.0, platforms/android-35).
+# (ANDROID_SDK_ROOT or ANDROID_HOME, build-tools/36.1.0, platforms/android-36).
 # The old single-machine layout still works when those directories exist:
-#   ANDROID_SDK_ROOT=/tmp/android-sdk          (android-14/ and android-35/)
+#   ANDROID_SDK_ROOT=/tmp/android-sdk          (android-14/ and android-36/)
 #   BLUELOT_CAR_LIBS=/tmp/car-libs             (classes.jar and cp/*.jar)
 #   BLUELOT_FALLBACK_SNAPSHOT=/path/to/fallback-snapshot.json
 #   BLUELOT_ARTIFACTS=/workspace/artifacts
@@ -102,29 +102,29 @@ elif [ -d /tmp/android-sdk ]; then
   SDK=/tmp/android-sdk
 else
   echo "Android SDK not found. Set ANDROID_SDK_ROOT or ANDROID_HOME." >&2
-  echo "Install platforms;android-35 and build-tools;35.0.0." >&2
+  echo "Install platforms;android-36 and build-tools;36.1.0." >&2
   exit 1
 fi
 
 if [ -n "${ANDROID_BUILD_TOOLS:-}" ]; then
   BT=$ANDROID_BUILD_TOOLS
-elif [ -x "$SDK/build-tools/35.0.0/aapt2" ]; then
-  BT=$SDK/build-tools/35.0.0
+elif [ -x "$SDK/build-tools/36.1.0/aapt2" ]; then
+  BT=$SDK/build-tools/36.1.0
 elif [ -x "$SDK/android-14/aapt2" ]; then
   BT=$SDK/android-14
 else
-  echo "aapt2 not found. Install build-tools 35.0.0 under $SDK or set ANDROID_BUILD_TOOLS." >&2
+  echo "aapt2 not found. Install build-tools 36.1.0 under $SDK or set ANDROID_BUILD_TOOLS." >&2
   exit 1
 fi
 
 if [ -n "${ANDROID_JAR:-}" ]; then
   JAR=$ANDROID_JAR
-elif [ -f "$SDK/platforms/android-35/android.jar" ]; then
-  JAR=$SDK/platforms/android-35/android.jar
-elif [ -f "$SDK/android-35/android.jar" ]; then
-  JAR=$SDK/android-35/android.jar
+elif [ -f "$SDK/platforms/android-36/android.jar" ]; then
+  JAR=$SDK/platforms/android-36/android.jar
+elif [ -f "$SDK/android-36/android.jar" ]; then
+  JAR=$SDK/android-36/android.jar
 else
-  echo "android.jar not found. Install platforms;android-35 under $SDK or set ANDROID_JAR." >&2
+  echo "android.jar not found. Install platforms;android-36 under $SDK or set ANDROID_JAR." >&2
   exit 1
 fi
 
@@ -308,7 +308,7 @@ PY
   --rename-manifest-package "$APP_ID" \
   --custom-package "$JAVA_PACKAGE" \
   --min-sdk-version 24 \
-  --target-sdk-version 34 \
+  --target-sdk-version 36 \
   --java "$OUT/gen" \
   -A "$OUT/assets" \
   "$OUT/compiled.zip"
@@ -445,7 +445,7 @@ PY
   --manifest "$MANIFEST" \
   --rename-manifest-package "$APP_ID" \
   --min-sdk-version 24 \
-  --target-sdk-version 34 \
+  --target-sdk-version 36 \
   -A "$OUT/assets" \
   "$OUT/compiled.zip"
 
