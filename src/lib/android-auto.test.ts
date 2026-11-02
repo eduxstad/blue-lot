@@ -7,11 +7,13 @@ describe("Android Auto charging app", () => {
   const build = readFileSync("android/build.sh", "utf8");
   const workflow = readFileSync(".github/workflows/play-internal-release.yml", "utf8");
 
-  it("registers a Play charging Car App at API level 1", () => {
+  it("registers a Play POI Car App at API level 1", () => {
     expect(manifest).toContain('android:versionCode="13"');
     expect(manifest).toContain('android:versionName="1.12.0"');
     expect(manifest).toContain("androidx.car.app.CarAppService");
-    expect(manifest).toContain("androidx.car.app.category.CHARGING");
+    expect(manifest).toContain("androidx.car.app.category.POI");
+    expect(manifest).not.toContain("androidx.car.app.category.CHARGING");
+    expect(manifest).not.toContain("androidx.car.app.category.PARKING");
     expect(manifest).toContain(".ChargerCarService");
     expect(manifest).toMatch(
       /android:name="androidx\.car\.app\.minCarApiLevel"\s+android:value="1"/,

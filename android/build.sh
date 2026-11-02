@@ -543,12 +543,18 @@ if name and found_name.group(1) != name:
 flat = re.sub(r"\s+", " ", text)
 for needle in (
     "androidx.car.app.CarAppService",
-    "androidx.car.app.category.CHARGING",
+    "androidx.car.app.category.POI",
     "androidx.car.app.minCarApiLevel",
     "ChargerCarService",
 ):
     if needle not in flat:
         raise SystemExit(f"AAB manifest is missing {needle}")
+for banned in (
+    "androidx.car.app.category.CHARGING",
+    "androidx.car.app.category.PARKING",
+):
+    if banned in flat:
+        raise SystemExit(f"AAB manifest still declares {banned}")
 if "ChargerMediaService" in flat or "MediaBrowserService" in flat:
     raise SystemExit("AAB manifest still registers the media workaround")
 if re.search(r'appCategory="audio"', flat):
@@ -558,7 +564,7 @@ if not re.search(
     flat,
 ):
     raise SystemExit("AAB manifest minCarApiLevel is not 1")
-print("aab", found_code.group(1), found_name.group(1), "charging")
+print("aab", found_code.group(1), found_name.group(1), "poi")
 PY
 
 badging=$("$BT/aapt" dump badging "$OUT/Blue-Lot.apk")
