@@ -14,6 +14,7 @@ export default defineConfig({
     include: [
       "src/lib/chargers.test.ts",
       "src/lib/app-version.test.ts",
+      "src/lib/android-auto.test.ts",
       "src/components/**/*.stories.test.tsx",
     ],
   },
