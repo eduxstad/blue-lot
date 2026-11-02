@@ -12,6 +12,12 @@
 # Dependency jars and bundletool are downloaded into android/.car-libs and
 # android/.bundletool when they are not already there.
 #
+# The Car App Library reads car-app-api.level through the app ClassLoader
+# during the host handshake (AppInfo / CarAppApiLevels.getLatest). d8 does
+# not copy that file out of the jar, so the APK and the bundle root must
+# contain it. Without it getAppInfo throws IllegalStateException before the
+# host callback, and Android Auto reports "isn't responding".
+#
 # CI (GITHUB_ACTIONS=true) must set KEYSTORE_BASE64, KEYSTORE_PASSWORD,
 # KEY_ALIAS, and KEY_PASSWORD. A missing secret fails the build. Local runs
 # reuse android/bluelot.keystore, or create one, with alias bluelot.
@@ -135,7 +141,10 @@ for tool in aapt aapt2 d8 zipalign apksigner; do
   fi
 done
 
-ensure_aar_classes "$LIBS/classes.jar" "$GMAVEN/androidx/car/app/app/1.4.0/app-1.4.0.aar"
+# 1.7.0 speaks Car API level 8. 1.4.0 stops at 7 and rejects newer Android Auto hosts.
+CAR_APP_JAR=$LIBS/car-app-1.7.0.jar
+ensure_aar_classes "$CAR_APP_JAR" "$GMAVEN/androidx/car/app/app/1.7.0/app-1.7.0.aar"
+ensure_jar "$LIBS/cp/kotlin-stdlib-1.8.22.jar" "$CENTRAL/org/jetbrains/kotlin/kotlin-stdlib/1.8.22/kotlin-stdlib-1.8.22.jar"
 ensure_aar_classes "$LIBS/cp/core-1.7.0.jar" "$GMAVEN/androidx/core/core/1.7.0/core-1.7.0.aar"
 ensure_aar_classes "$LIBS/cp/lifecycle-runtime-2.3.1.jar" "$GMAVEN/androidx/lifecycle/lifecycle-runtime/2.3.1/lifecycle-runtime-2.3.1.aar"
 ensure_jar "$LIBS/cp/lifecycle-common-2.3.1.jar" "$GMAVEN/androidx/lifecycle/lifecycle-common/2.3.1/lifecycle-common-2.3.1.jar"
@@ -152,10 +161,20 @@ ensure_jar "$LIBS/cp/concurrent-futures-1.0.0.jar" "$GMAVEN/androidx/concurrent/
 ensure_jar "$LIBS/cp/guava-31.1-android.jar" "$CENTRAL/com/google/guava/guava/31.1-android/guava-31.1-android.jar"
 ensure_jar "$LIBS/cp/failureaccess-1.0.1.jar" "$CENTRAL/com/google/guava/failureaccess/1.0.1/failureaccess-1.0.1.jar"
 
-if ! python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); sys.exit(0 if "androidx/car/app/CarAppService.class" in z.namelist() else 1)' "$LIBS/classes.jar"; then
-  echo "car library jar is missing androidx.car.app.CarAppService: $LIBS/classes.jar" >&2
-  exit 1
-fi
+python3 - "$CAR_APP_JAR" <<'PY'
+import sys
+import zipfile
+jar = zipfile.ZipFile(sys.argv[1])
+names = jar.namelist()
+if "androidx/car/app/CarAppService.class" not in names:
+    raise SystemExit(f"car library jar is missing androidx.car.app.CarAppService: {sys.argv[1]}")
+if "car-app-api.level" not in names:
+    raise SystemExit(f"car library jar is missing car-app-api.level: {sys.argv[1]}")
+level = jar.read("car-app-api.level").decode().strip()
+if not level.isdigit() or int(level) < 8:
+    raise SystemExit(f"car-app-api.level is {level!r}; Android Auto hosts newer than that are rejected")
+print("car library", level)
+PY
 
 if [ -n "${BUNDLETOOL_JAR:-}" ]; then
   if [ ! -s "$BUNDLETOOL_JAR" ]; then
@@ -356,7 +375,7 @@ PY
 
 CP_JARS=(
   "$JAR"
-  "$LIBS/classes.jar"
+  "$CAR_APP_JAR"
   "$LIBS/cp/core-1.7.0.jar"
   "$LIBS/cp/lifecycle-runtime-2.3.1.jar"
   "$LIBS/cp/lifecycle-common-2.3.1.jar"
@@ -389,7 +408,8 @@ javac --release 8 -encoding UTF-8 -classpath "$CP" -d "$OUT/classes" \
 
 find "$OUT/classes" -name '*.class' > "$OUT/classes.list"
 DEX_JARS=(
-  "$LIBS/classes.jar"
+  "$CAR_APP_JAR"
+  "$LIBS/cp/kotlin-stdlib-1.8.22.jar"
   "$LIBS/cp/core-1.7.0.jar"
   "$LIBS/cp/lifecycle-runtime-2.3.1.jar"
   "$LIBS/cp/lifecycle-common-2.3.1.jar"
@@ -409,7 +429,7 @@ printf '%s\n' "${DEX_JARS[@]}" > "$OUT/dex-jars.list"
 "$BT/d8" --release --min-api 24 --lib "$JAR" --output "$OUT/dex" \
   @"$OUT/classes.list" @"$OUT/dex-jars.list"
 
-export OUT
+export OUT CAR_APP_JAR
 python3 - <<'PY'
 import os
 import zipfile
@@ -418,6 +438,9 @@ from pathlib import Path
 out = Path(os.environ["OUT"])
 unsigned = out / "unsigned.apk"
 src = out / "linked.apk"
+level = zipfile.ZipFile(os.environ["CAR_APP_JAR"]).read("car-app-api.level")
+if not level.decode().strip().isdigit():
+    raise SystemExit("car-app-api.level is not an integer")
 with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(unsigned, "w") as zout:
     for info in zin.infolist():
         data = zin.read(info.filename)
@@ -434,7 +457,11 @@ with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(unsigned, "w") as zout:
         dex_info.external_attr = 0
         zout.writestr(dex_info, dex_path.read_bytes())
         print("dex", dex_path.name, dex_path.stat().st_size)
-print("unsigned", unsigned.stat().st_size)
+    level_info = zipfile.ZipInfo(filename="car-app-api.level")
+    level_info.compress_type = zipfile.ZIP_STORED
+    level_info.external_attr = 0
+    zout.writestr(level_info, level)
+print("unsigned", unsigned.stat().st_size, "car-app-api.level", level.decode().strip())
 PY
 
 "$BT/aapt2" link \
@@ -448,7 +475,7 @@ PY
   -A "$OUT/assets" \
   "$OUT/compiled.zip"
 
-export OUT
+export OUT CAR_APP_JAR
 python3 - <<'PY'
 import os
 import zipfile
@@ -460,6 +487,7 @@ module = out / "base.zip"
 dex_files = sorted((out / "dex").glob("classes*.dex"))
 if not dex_files:
     raise SystemExit("no dex output")
+level = zipfile.ZipFile(os.environ["CAR_APP_JAR"]).read("car-app-api.level")
 with zipfile.ZipFile(proto) as zin, zipfile.ZipFile(module, "w") as zout:
     names = zin.namelist()
     if "AndroidManifest.xml" not in names or "resources.pb" not in names:
@@ -480,6 +508,8 @@ with zipfile.ZipFile(proto) as zin, zipfile.ZipFile(module, "w") as zout:
             put(name, zin.read(name))
     for dex_path in dex_files:
         put(f"dex/{dex_path.name}", dex_path.read_bytes())
+    # ClassLoader.getResourceAsStream("car-app-api.level") reads this from the APK root.
+    put("root/car-app-api.level", level)
 print("module entries", len(zipfile.ZipFile(module).namelist()))
 PY
 
@@ -610,6 +640,31 @@ case "$auto_xml" in
     exit 1
     ;;
 esac
+
+python3 - "$OUT/Blue-Lot.apk" "$OUT/Blue-Lot.aab" <<'PY'
+import sys
+import zipfile
+
+apk_path, aab_path = sys.argv[1:]
+apk = zipfile.ZipFile(apk_path)
+if "car-app-api.level" not in apk.namelist():
+    raise SystemExit("APK is missing car-app-api.level; the host handshake cannot read the library API level")
+level = apk.read("car-app-api.level").decode().strip()
+if not level.isdigit() or int(level) < 8:
+    raise SystemExit(f"APK car-app-api.level is {level!r}")
+dex = b"".join(apk.read(name) for name in apk.namelist() if name.startswith("classes") and name.endswith(".dex"))
+for marker in (b"car-app-api.level", b"ChargerCarService", b"CarAppService"):
+    if marker not in dex:
+        raise SystemExit(f"dex is missing {marker.decode()}")
+aab = zipfile.ZipFile(aab_path)
+matches = [name for name in aab.namelist() if name.endswith("car-app-api.level")]
+if not matches:
+    raise SystemExit("AAB is missing car-app-api.level")
+bundled = aab.read(matches[0]).decode().strip()
+if bundled != level:
+    raise SystemExit(f"AAB car-app-api.level is {bundled!r}, APK has {level!r}")
+print("car-app-api.level", level, "in apk and", matches[0])
+PY
 
 mkdir -p "$ARTIFACTS"
 cp "$OUT/Blue-Lot.apk" "$ARTIFACTS/Blue-Lot.apk"

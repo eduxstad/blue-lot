@@ -9,7 +9,7 @@ Stalls are grouped by floor. Bank A and Bank B are the two rows on a floor, take
 - **Offline** stalls are dashed.
 - **Last seen** is relative. Tap it to show the absolute time in the phone's time zone.
 
-The list refreshes every 30 seconds. Filters are Open, In use, Offline, and Saved. On a phone, swipe sideways to move between those filters. Search is by stall number. Tap a stall for power, plug state, session or open time, and a directions link. Star a stall to keep it on Saved. Feedback opens an email to `bluelotfeedback@mail.grokbot.com`. The footer shows the app version, currently **1.12.1**.
+The list refreshes every 30 seconds. Filters are Open, In use, Offline, and Saved. On a phone, swipe sideways to move between those filters. Search is by stall number. Tap a stall for power, plug state, session or open time, and a directions link. Star a stall to keep it on Saved. Feedback opens an email to `bluelotfeedback@mail.grokbot.com`. The footer shows the app version, currently **1.12.2**.
 
 ## Alerts
 

@@ -8,8 +8,8 @@ describe("Android Auto charging app", () => {
   const workflow = readFileSync(".github/workflows/play-internal-release.yml", "utf8");
 
   it("registers a Play POI Car App at API level 1", () => {
-    expect(manifest).toContain('android:versionCode="19"');
-    expect(manifest).toContain('android:versionName="1.12.1"');
+    expect(manifest).toContain('android:versionCode="25"');
+    expect(manifest).toContain('android:versionName="1.12.2"');
     expect(manifest).toContain("androidx.car.app.CarAppService");
     expect(manifest).toContain("androidx.car.app.category.POI");
     expect(manifest).not.toContain("androidx.car.app.category.CHARGING");
@@ -40,8 +40,17 @@ describe("Android Auto charging app", () => {
     expect(workflow).toContain("packageName: com.duxstad.bluelotchargers");
     expect(workflow).toContain("releaseFiles: android/build/Blue-Lot.aab");
     expect(workflow).toContain("track: internal");
-    expect(workflow).toContain("version_code=$((18 + ${GITHUB_RUN_NUMBER:?}))");
-    expect(workflow).toContain("versionName=${INPUT_VERSION_NAME:-1.12.1}");
+    expect(workflow).toContain("version_code=$((24 + ${GITHUB_RUN_NUMBER:?}))");
+    expect(workflow).toContain("versionName=${INPUT_VERSION_NAME:-1.12.2}");
+  });
+
+  it("ships the car library API level on the app classpath", () => {
+    const library = readFileSync("android/res/values/car_lib.xml", "utf8");
+    expect(library).toContain(">1.7.0<");
+    expect(build).toContain("androidx/car/app/app/1.7.0/app-1.7.0.aar");
+    expect(build).toContain('filename="car-app-api.level"');
+    expect(build).toContain('put("root/car-app-api.level"');
+    expect(build).not.toContain("app/1.4.0/app-1.4.0.aar");
   });
 
   it("returns the first car template without calling the host or the feed", () => {

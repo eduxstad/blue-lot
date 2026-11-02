@@ -8,7 +8,7 @@ on:
         required: false
         default: ''
       version_code:
-        description: 'versionCode override (optional; default is 18 plus github.run_number)'
+        description: 'versionCode override (optional; default is 24 plus github.run_number)'
         required: false
         default: ''
       release_notes:
@@ -55,7 +55,7 @@ jobs:
             fi
             version_code=$INPUT_VERSION_CODE
           else
-            version_code=$((18 + ${GITHUB_RUN_NUMBER:?}))
+            version_code=$((24 + ${GITHUB_RUN_NUMBER:?}))
           fi
           if [ "$version_code" -gt 2100000000 ]; then
             echo "version_code is above the Android maximum" >&2
@@ -69,7 +69,7 @@ jobs:
             fi
             echo "VERSION_NAME=$INPUT_VERSION_NAME" >> "${GITHUB_ENV:?}"
           fi
-          echo "versionCode=$version_code versionName=${INPUT_VERSION_NAME:-1.12.1}"
+          echo "versionCode=$version_code versionName=${INPUT_VERSION_NAME:-1.12.2}"
 
       # build.sh downloads bundletool 1.18.3 and the pinned AndroidX/Guava jars.
       - name: Build signed APK and AAB

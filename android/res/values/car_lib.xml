@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="car_app_library_version" translatable="false">1.4.0</string>
+    <string name="car_app_library_version" translatable="false">1.7.0</string>
     <integer name="content_limit_grid">6</integer>
     <integer name="content_limit_list">6</integer>
     <integer name="content_limit_pane">4</integer>
