@@ -94,4 +94,4 @@ jobs:
           packageName: com.duxstad.bluelotchargers
           releaseFiles: android/build/Blue-Lot.aab
           track: internal
-          status: draft
+          status: completed
