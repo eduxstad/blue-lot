@@ -290,9 +290,10 @@ print("html bytes", html_out.stat().st_size)
 (out / "assets/fallback-snapshot.json").write_bytes(fallback_path.read_bytes())
 
 def icon(size: int) -> Image.Image:
-    img = Image.new("RGBA", (size, size), (61, 220, 132, 255))
+    # carColorBlue from res/values/car_lib.xml. The bolt stays the same shape.
+    img = Image.new("RGBA", (size, size), (102, 157, 246, 255))
     draw = ImageDraw.Draw(img)
-    ink = (6, 32, 20, 255)
+    ink = (8, 24, 48, 255)
     cx = cy = size / 2
     s = size * 0.46
     pts = [
