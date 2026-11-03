@@ -8,8 +8,8 @@ describe("Android Auto charging app", () => {
   const workflow = readFileSync(".github/workflows/play-internal-release.yml", "utf8");
 
   it("registers a Play POI Car App at API level 1", () => {
-    expect(manifest).toContain('android:versionCode="25"');
-    expect(manifest).toContain('android:versionName="1.12.2"');
+    expect(manifest).toContain('android:versionCode="26"');
+    expect(manifest).toContain('android:versionName="1.12.3"');
     expect(manifest).toContain("androidx.car.app.CarAppService");
     expect(manifest).toContain("androidx.car.app.category.POI");
     expect(manifest).not.toContain("androidx.car.app.category.CHARGING");
@@ -41,7 +41,7 @@ describe("Android Auto charging app", () => {
     expect(workflow).toContain("releaseFiles: android/build/Blue-Lot.aab");
     expect(workflow).toContain("track: internal");
     expect(workflow).toContain("version_code=$((24 + ${GITHUB_RUN_NUMBER:?}))");
-    expect(workflow).toContain("versionName=${INPUT_VERSION_NAME:-1.12.2}");
+    expect(workflow).toContain("versionName=${INPUT_VERSION_NAME:-1.12.3}");
   });
 
   it("ships the car library API level on the app classpath", () => {
@@ -60,6 +60,10 @@ describe("Android Auto charging app", () => {
     expect(source).not.toContain("getCarService(ConstraintManager");
     expect(source).toContain("setLoading(true)");
     expect(source).toContain('static final String FEED_ERROR = "Couldn\'t reach the charger feed."');
+    expect(source).toContain('static final String NO_OPEN = "No open chargers"');
+    expect(source).toContain('return "Stall " + stall.name + " · " + floorLabel(stall)');
+    expect(source).toContain('if ("open".equals(stall.availability)) stalls.add(stall)');
+    expect(build).toContain("(102, 157, 246, 255)");
     const loads = source.split("ChargerFeed.load(").length - 1;
     expect(loads).toBe(1);
     const loadAt = source.indexOf("ChargerFeed.load(");

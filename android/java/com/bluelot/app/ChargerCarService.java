@@ -45,6 +45,7 @@ public class ChargerCarService extends CarAppService {
     static final int LIST_PAGE_SIZE = 6;
     static final int PANE_ROW_LIMIT = 4;
     static final String FEED_ERROR = "Couldn't reach the charger feed.";
+    static final String NO_OPEN = "No open chargers";
     @Override
     public HostValidator createHostValidator() {
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
@@ -65,10 +66,21 @@ public class ChargerCarService extends CarAppService {
         };
     }
 
+    static String floorLabel(ChargerFeed.Stall stall) {
+        return stall.floor == 0 ? "Unassigned" : "Floor " + stall.floor;
+    }
+
+    static String bankLabel(ChargerFeed.Stall stall) {
+        return stall.bank == null || stall.bank.length() == 0 ? "J1772" : "Bank " + stall.bank;
+    }
+
+    /** Row title: stall first, floor second. The bank stays on the subtitle. */
+    static String rowTitle(ChargerFeed.Stall stall) {
+        return "Stall " + stall.name + " · " + floorLabel(stall);
+    }
+
     static String whereLabel(ChargerFeed.Stall stall) {
-        String bank = stall.bank == null || stall.bank.length() == 0 ? "J1772" : "Bank " + stall.bank;
-        String floor = stall.floor == 0 ? "Unassigned" : "Floor " + stall.floor;
-        return floor + " · " + bank;
+        return floorLabel(stall) + " · " + bankLabel(stall);
     }
 
     static String statusLabel(ChargerFeed.Stall stall) {
@@ -119,7 +131,7 @@ public class ChargerCarService extends CarAppService {
         return R.drawable.ic_offline;
     }
 
-    /** Every stall from the feed, paged to the host's list limit. */
+    /** Open stalls from the feed, paged to the host's list limit. */
     static final class StallListScreen extends Screen {
         private final ExecutorService executor = Executors.newSingleThreadExecutor();
         private final Handler main = new Handler(Looper.getMainLooper());
@@ -185,10 +197,13 @@ public class ChargerCarService extends CarAppService {
                             if (gen != generation || destroyed()) return;
                             loading = false;
                             live = snapshot.live;
-                            stalls = snapshot.stalls;
+                            stalls = new ArrayList<ChargerFeed.Stall>();
+                            for (ChargerFeed.Stall stall : snapshot.stalls) {
+                                if ("open".equals(stall.availability)) stalls.add(stall);
+                            }
                             openFor = seen;
                             directions = snapshot.site.directionsQuery();
-                            error = !live && stalls.isEmpty() ? FEED_ERROR : null;
+                            error = !live && snapshot.stalls.isEmpty() ? FEED_ERROR : null;
                             int pages = pageCount();
                             if (page >= pages) page = pages - 1;
                             if (page < 0) page = 0;
@@ -291,7 +306,7 @@ public class ChargerCarService extends CarAppService {
             if (error != null) {
                 list.setNoItemsMessage(error);
             } else if (stalls.isEmpty()) {
-                list.setNoItemsMessage("No stalls right now");
+                list.setNoItemsMessage(NO_OPEN);
             } else {
                 int size = pageSize();
                 int start = page * size;
@@ -300,8 +315,8 @@ public class ChargerCarService extends CarAppService {
                     final ChargerFeed.Stall stall = stalls.get(i);
                     final long seenOpen = openSeconds(stall);
                     list.addItem(new Row.Builder()
-                            .setTitle(stall.name)
-                            .addText(whereLabel(stall))
+                            .setTitle(rowTitle(stall))
+                            .addText(bankLabel(stall))
                             .addText(statusLine(stall, seenOpen))
                             .setImage(icon(statusIcon(stall)), Row.IMAGE_TYPE_ICON)
                             .setBrowsable(true)

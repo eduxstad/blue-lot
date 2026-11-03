@@ -69,7 +69,7 @@ jobs:
             fi
             echo "VERSION_NAME=$INPUT_VERSION_NAME" >> "${GITHUB_ENV:?}"
           fi
-          echo "versionCode=$version_code versionName=${INPUT_VERSION_NAME:-1.12.2}"
+          echo "versionCode=$version_code versionName=${INPUT_VERSION_NAME:-1.12.3}"
 
       # build.sh downloads bundletool 1.18.3 and the pinned AndroidX/Guava jars.
       - name: Build signed APK and AAB
