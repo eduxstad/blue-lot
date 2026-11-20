@@ -201,6 +201,8 @@ case "$OUT" in
 esac
 rm -rf "$OUT"
 mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/assets/www" "$OUT/res" "$OUT/gen"
+# Launcher PNGs and the adaptive icon (including monochrome) live in res/.
+# Do not redraw mipmap-*/ic_launcher.png here; API 24–25 uses those files.
 cp -a "$ROOT/res/." "$OUT/res/"
 
 if [ "$use_secret_keystore" = true ]; then
@@ -262,20 +264,13 @@ PY
 fi
 
 export ROOT OUT FALLBACK
-export RES_DIR=$OUT/res
 python3 - <<'PY'
 import json
 import os
 from pathlib import Path
 
-try:
-    from PIL import Image, ImageDraw
-except ImportError as err:
-    raise SystemExit("Pillow is required. Install python3-pil or pip install pillow.") from err
-
 root = Path(os.environ["ROOT"])
 out = Path(os.environ["OUT"])
-res = Path(os.environ["RES_DIR"])
 fallback_path = Path(os.environ["FALLBACK"])
 src = (root / "assets/www/index.html").read_text(encoding="utf-8")
 data = json.loads(fallback_path.read_text(encoding="utf-8"))
@@ -288,36 +283,6 @@ html_out.parent.mkdir(parents=True, exist_ok=True)
 html_out.write_text(html, encoding="utf-8")
 print("html bytes", html_out.stat().st_size)
 (out / "assets/fallback-snapshot.json").write_bytes(fallback_path.read_bytes())
-
-def icon(size: int) -> Image.Image:
-    # carColorBlue from res/values/car_lib.xml. The bolt stays the same shape.
-    img = Image.new("RGBA", (size, size), (102, 157, 246, 255))
-    draw = ImageDraw.Draw(img)
-    ink = (8, 24, 48, 255)
-    cx = cy = size / 2
-    s = size * 0.46
-    pts = [
-        (cx + s * 0.05, cy - s * 0.50),
-        (cx - s * 0.30, cy + s * 0.02),
-        (cx - s * 0.02, cy + s * 0.02),
-        (cx - s * 0.14, cy + s * 0.50),
-        (cx + s * 0.34, cy - s * 0.08),
-        (cx + s * 0.02, cy - s * 0.08),
-    ]
-    draw.polygon(pts, fill=ink)
-    return img
-
-for name, size in {
-    "mipmap-mdpi": 48,
-    "mipmap-hdpi": 72,
-    "mipmap-xhdpi": 96,
-    "mipmap-xxhdpi": 144,
-    "mipmap-xxxhdpi": 192,
-}.items():
-    folder = res / name
-    folder.mkdir(parents=True, exist_ok=True)
-    icon(size).save(folder / "ic_launcher.png")
-print("icons ok")
 PY
 
 "$BT/aapt2" compile -o "$OUT/compiled.zip" --dir "$OUT/res"
@@ -648,6 +613,24 @@ import zipfile
 
 apk_path, aab_path = sys.argv[1:]
 apk = zipfile.ZipFile(apk_path)
+for name in (
+    "res/mipmap-anydpi-v26/ic_launcher.xml",
+    "res/mipmap-anydpi-v26/ic_launcher_round.xml",
+    "res/drawable/ic_launcher_monochrome.xml",
+):
+    if name not in apk.namelist():
+        raise SystemExit(f"APK is missing {name}")
+arsc = apk.read("resources.arsc")
+if b"ic_launcher_monochrome" not in arsc:
+    raise SystemExit("APK resources.arsc is missing ic_launcher_monochrome")
+for name in (
+    "res/mipmap-anydpi-v26/ic_launcher.xml",
+    "res/mipmap-anydpi-v26/ic_launcher_round.xml",
+):
+    # aapt2 compiles these to binary XML. The element name stays "monochrome";
+    # the drawable itself is a resource id resolved through resources.arsc.
+    if b"monochrome" not in apk.read(name):
+        raise SystemExit(f"APK adaptive icon {name} is missing the monochrome layer")
 if "car-app-api.level" not in apk.namelist():
     raise SystemExit("APK is missing car-app-api.level; the host handshake cannot read the library API level")
 level = apk.read("car-app-api.level").decode().strip()
@@ -658,6 +641,27 @@ for marker in (b"car-app-api.level", b"ChargerCarService", b"CarAppService"):
     if marker not in dex:
         raise SystemExit(f"dex is missing {marker.decode()}")
 aab = zipfile.ZipFile(aab_path)
+for name in (
+    "base/res/mipmap-anydpi-v26/ic_launcher.xml",
+    "base/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+    "base/res/drawable/ic_launcher_background.xml",
+    "base/res/drawable/ic_launcher_foreground.xml",
+    "base/res/drawable/ic_launcher_monochrome.xml",
+):
+    if name not in aab.namelist():
+        raise SystemExit(f"AAB is missing {name}")
+for name in (
+    "base/res/mipmap-anydpi-v26/ic_launcher.xml",
+    "base/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+):
+    data = aab.read(name)
+    if b"monochrome" not in data or b"ic_launcher_monochrome" not in data:
+        raise SystemExit(f"AAB adaptive icon {name} is missing the monochrome layer")
+for density in ("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"):
+    for icon in ("ic_launcher.png", "ic_launcher_round.png"):
+        matches_png = [n for n in aab.namelist() if n.endswith(f"mipmap-{density}-v4/{icon}")]
+        if not matches_png:
+            raise SystemExit(f"AAB is missing mipmap-{density}/{icon}")
 matches = [name for name in aab.namelist() if name.endswith("car-app-api.level")]
 if not matches:
     raise SystemExit("AAB is missing car-app-api.level")
@@ -665,6 +669,7 @@ bundled = aab.read(matches[0]).decode().strip()
 if bundled != level:
     raise SystemExit(f"AAB car-app-api.level is {bundled!r}, APK has {level!r}")
 print("car-app-api.level", level, "in apk and", matches[0])
+print("adaptive icon monochrome layer in apk and aab")
 PY
 
 mkdir -p "$ARTIFACTS"

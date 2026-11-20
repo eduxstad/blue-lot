@@ -37,11 +37,6 @@ jobs:
         with:
           packages: 'platforms;android-36 build-tools;36.1.0'
 
-      - name: Install Pillow
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pil
-
       - name: Resolve version
         env:
           INPUT_VERSION_CODE: ${{ inputs.version_code }}
@@ -69,7 +64,7 @@ jobs:
             fi
             echo "VERSION_NAME=$INPUT_VERSION_NAME" >> "${GITHUB_ENV:?}"
           fi
-          echo "versionCode=$version_code versionName=${INPUT_VERSION_NAME:-1.12.3}"
+          echo "versionCode=$version_code versionName=${INPUT_VERSION_NAME:-1.12.4}"
 
       # build.sh downloads bundletool 1.18.3 and the pinned AndroidX/Guava jars.
       - name: Build signed APK and AAB
